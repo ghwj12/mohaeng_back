@@ -78,10 +78,11 @@ public interface AdminEventStatsRepository extends JpaRepository<EventEntity, Lo
            nativeQuery = true)
     Long sumBoothRevenueByEventId(@Param("eventId") Long eventId);
 
-    // ── 8. 리뷰/위시리스트 수 ──
-    // TODO: review, wishlist 테이블 생성 후 아래 주석 해제
-    // @Query(value = "SELECT COUNT(*) FROM review WHERE event_id = :eventId", nativeQuery = true)
-    // Long countReviewsByEventId(@Param("eventId") Long eventId);
-    // @Query(value = "SELECT COUNT(*) FROM wishlist WHERE event_id = :eventId", nativeQuery = true)
-    // Long countWishlistByEventId(@Param("eventId") Long eventId);
+    // ── 8. 리뷰 수 ──
+    @Query(value = "SELECT COUNT(*) FROM event_review WHERE EVENT_ID = :eventId", nativeQuery = true)
+    Long countReviewsByEventId(@Param("eventId") Long eventId);
+
+    // ── 9. 관심(위시리스트) 수 ──
+    @Query(value = "SELECT COUNT(*) FROM event_wishlist WHERE EVENT_ID = :eventId", nativeQuery = true)
+    Long countWishlistByEventId(@Param("eventId") Long eventId);
 }

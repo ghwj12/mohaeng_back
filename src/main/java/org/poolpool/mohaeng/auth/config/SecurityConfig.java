@@ -107,6 +107,8 @@ public class SecurityConfig {
                 // auth endpoints
                 .requestMatchers("/auth/**").permitAll()
                 
+                .requestMatchers(HttpMethod.GET, "/api/eventParticipation/check/**").permitAll()
+                
                 // 업로드 파일 접근 권한
                 .requestMatchers("/upload_files/**").permitAll()
 

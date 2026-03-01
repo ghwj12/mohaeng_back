@@ -14,7 +14,8 @@ public final class EndpointPolicy {
             "/api/user/checkId",	//이메일 중복 확인
             "/api/user/createUser",	//일반 회원가입
             "/api/user/searchId",	//이메일 찾기
-            "/api/user/renewPwd"	//비밀번호 찾기
+            "/api/user/renewPwd",	//비밀번호 찾기
+            "/api/sms/**"
     };
 
     //관리자(ADMIN)만 가능

@@ -36,24 +36,25 @@ public class EventServiceImpl implements EventService {
     private final HostFacilityRepository hostFacilityRepository;
 
     @Override
-    @Transactional 
+    @Transactional
     public EventDetailDto getEventDetail(Long eventId, boolean shouldIncreaseView) {
         EventEntity event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new RuntimeException("존재하지 않는 행사입니다."));
 
-        // ✅ 삭제된 행사는 상세 조회 불가
         if ("DELETED".equals(event.getEventStatus()) || "행사삭제".equals(event.getEventStatus())) {
             throw new IllegalArgumentException("삭제된 행사입니다.");
         }
 
-
-        // ✅ 컨트롤러에서 넘겨준 '조회수 증가 여부'를 여기서 체크합니다!
         if (shouldIncreaseView) {
             Integer currentViews = (event.getViews() == null) ? 0 : event.getViews();
             event.setViews(currentViews + 1);
         }
-        
+
         EventDto eventDto = EventDto.fromEntity(event);
+
+        // ✅ Issue 3: 현재 참여자 수 주입
+        Integer participantCount = eventRepository.countParticipantsByEventId(eventId);
+        eventDto.setCurrentParticipantCount(participantCount != null ? participantCount : 0);
 
         List<String> detailImages = new ArrayList<>();
         List<String> boothImages = new ArrayList<>();
@@ -80,6 +81,7 @@ public class EventServiceImpl implements EventService {
                 .hostName(event.getHost() != null ? event.getHost().getName() : "정보 없음")
                 .hostEmail(event.getHost() != null ? event.getHost().getEmail() : "정보 없음")
                 .hostPhone(event.getHost() != null ? event.getHost().getPhone() : "정보 없음")
+                .hostPhoto(event.getHost() != null ? event.getHost().getProfileImg() : null)
                 .booths(booths.stream().map(HostBoothDto::fromEntity).toList())
                 .facilities(facilities.stream().map(HostFacilityDto::fromEntity).toList())
                 .build();
@@ -90,9 +92,8 @@ public class EventServiceImpl implements EventService {
     public Page<EventDto> searchEvents(
             String keyword, Long regionId, LocalDate filterStart, LocalDate filterEnd,
             Integer categoryId, List<String> topicIds,
-            boolean checkFree, boolean hideClosed, Pageable pageable) {
+            boolean checkFree, boolean hideClosed, String eventStatus, Pageable pageable) {
 
-        // 지역 범위 계산 (기존 로직 그대로)
         Long regionMin = null;
         Long regionMax = null;
 
@@ -112,32 +113,27 @@ public class EventServiceImpl implements EventService {
             regionMax = Long.parseLong(maxSb.toString());
         }
 
-        // ✅ topicIds가 없으면(초기값 = 전체) → 기존 쿼리 그대로 실행
         if (topicIds == null || topicIds.isEmpty()) {
             Page<EventEntity> eventPage = eventRepository.searchEvents(
                     keyword, regionId, regionMin, regionMax,
                     filterStart, filterEnd, categoryId,
                     checkFree, hideClosed, LocalDate.now(),
-                    null, pageable
+                    null, eventStatus, pageable  // ✅ Issue 5
             );
             return eventPage.map(EventDto::fromEntity);
         }
 
-        // ✅ topicIds가 있으면 → 각 topic을 개별적으로 조회 후 OR 합집합 처리
-        // LinkedHashMap으로 eventId 기준 중복 제거하면서 순서 유지
         Map<Long, EventEntity> mergedMap = new LinkedHashMap<>();
 
         for (String topicId : topicIds) {
             String trimmed = topicId.trim();
             if (trimmed.isEmpty()) continue;
 
-            // 각 topicId 하나씩 LIKE '%,1,%' 형태로 검색 (전체 페이지 크기로 조회)
-            // Pageable.unpaged() 대신 큰 사이즈로 조회 후 합산
             Page<EventEntity> page = eventRepository.searchEvents(
                     keyword, regionId, regionMin, regionMax,
                     filterStart, filterEnd, categoryId,
                     checkFree, hideClosed, LocalDate.now(),
-                    trimmed, Pageable.unpaged()
+                    trimmed, eventStatus, Pageable.unpaged()  // ✅ Issue 5
             );
 
             for (EventEntity e : page.getContent()) {
@@ -145,7 +141,6 @@ public class EventServiceImpl implements EventService {
             }
         }
 
-        // 합집합 결과를 pageable 기준으로 수동 페이징
         List<EventEntity> allMatched = new ArrayList<>(mergedMap.values());
         int total = allMatched.size();
         int start = (int) pageable.getOffset();

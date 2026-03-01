@@ -40,6 +40,9 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
 	//메일 발송 의존성 추가
 	implementation 'org.springframework.boot:spring-boot-starter-mail'
+	//문자 인증 관련 의존성 추가
+	//implementation 'com.solapi:sdk:2.2.2'
+	implementation 'com.solapi:sdk:1.0.3'
 	
 	// Devtools (개발시 유용한 도구를 제공하는 라이브러리임 (자동 스타터)
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'

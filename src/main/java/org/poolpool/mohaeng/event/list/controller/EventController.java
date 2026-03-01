@@ -29,68 +29,63 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class EventController {
 
-	private final EventService eventService;
+    private final EventService eventService;
 
-	@GetMapping("/search")
-	public ResponseEntity<Page<EventDto>> searchEvents(
-			@RequestParam(name = "keyword", required = false) String keyword,
-			@RequestParam(name = "regionId", required = false) Long regionId,
-			@RequestParam(name = "filterStart", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate filterStart,
-			@RequestParam(name = "filterEnd", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate filterEnd,
-			@RequestParam(name = "categoryId", required = false) Integer categoryId,
-			@RequestParam(name = "topicIds", required = false) List<String> topicIds,
-			@RequestParam(name = "checkFree", defaultValue = "false") boolean checkFree,
-			@RequestParam(name = "hideClosed", defaultValue = "false") boolean hideClosed,
-			@PageableDefault(size = 12) Pageable pageable) {
-		// 서비스 인터페이스 규격에 맞춰 개별 인자로 전달
-		Page<EventDto> result = eventService.searchEvents(keyword, regionId, filterStart, filterEnd, categoryId, topicIds,
-				checkFree, hideClosed, pageable);
+    @GetMapping("/search")
+    public ResponseEntity<Page<EventDto>> searchEvents(
+            @RequestParam(name = "keyword", required = false) String keyword,
+            @RequestParam(name = "regionId", required = false) Long regionId,
+            @RequestParam(name = "filterStart", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate filterStart,
+            @RequestParam(name = "filterEnd", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate filterEnd,
+            @RequestParam(name = "categoryId", required = false) Integer categoryId,
+            @RequestParam(name = "topicIds", required = false) List<String> topicIds,
+            @RequestParam(name = "checkFree", defaultValue = "false") boolean checkFree,
+            @RequestParam(name = "hideClosed", defaultValue = "false") boolean hideClosed,
+            @RequestParam(name = "eventStatus", required = false) String eventStatus, // ✅ Issue 5
+            @RequestParam(name = "status", required = false) String status,           // 기존 호환
+            @PageableDefault(size = 12) Pageable pageable) {
 
-		return ResponseEntity.ok(result);
-	}
+        // eventStatus 또는 status 파라미터 중 하나를 사용
+        String resolvedStatus = (eventStatus != null && !eventStatus.isBlank()) ? eventStatus : status;
 
-	@GetMapping("/{eventId}")
-	public ResponseEntity<EventDetailDto> getEventDetail(
-	    @PathVariable("eventId") Long eventId,
-	    @CookieValue(name = "viewedEvents", required = false) String viewedEvents // 💡 쿠키를 어노테이션으로 바로 가져옵니다.
-	) {
-	    // 1. 이미 본 이벤트인지 확인
-	    boolean isViewed = (viewedEvents != null && viewedEvents.contains("[" + eventId + "]"));
+        Page<EventDto> result = eventService.searchEvents(
+                keyword, regionId, filterStart, filterEnd, categoryId, topicIds,
+                checkFree, hideClosed, resolvedStatus, pageable);
 
-	    // 2. 서비스 호출 (조회수 증가 여부 전달)
-	    EventDetailDto detail = eventService.getEventDetail(eventId, !isViewed);
+        return ResponseEntity.ok(result);
+    }
 
-	    // 3. 처음 보는 이벤트라면 쿠키를 포함해서 응답
-	    if (!isViewed) {
-	        String newValue = (viewedEvents == null ? "" : viewedEvents) + "[" + eventId + "]";
-	        
-	        ResponseCookie cookie = ResponseCookie.from("viewedEvents", newValue)
-	                .path("/")
-	                .maxAge(60 * 60 * 24)
-	                .httpOnly(true)
-	                .secure(false) // HTTPS 환경이라면 true로 변경
-	                .build();
+    @GetMapping("/{eventId}")
+    public ResponseEntity<EventDetailDto> getEventDetail(
+            @PathVariable("eventId") Long eventId,
+            @CookieValue(name = "viewedEvents", required = false) String viewedEvents) {
 
-	        return ResponseEntity.ok()
-	                .header(HttpHeaders.SET_COOKIE, cookie.toString()) // 💡 헤더에 쿠키를 실어 보냅니다.
-	                .body(detail);
-	    }
+        boolean isViewed = (viewedEvents != null && viewedEvents.contains("[" + eventId + "]"));
+        EventDetailDto detail = eventService.getEventDetail(eventId, !isViewed);
 
-	    // 4. 이미 본 이벤트라면 그냥 데이터만 응답
-	    return ResponseEntity.ok(detail);
-	}
+        if (!isViewed) {
+            String newValue = (viewedEvents == null ? "" : viewedEvents) + "[" + eventId + "]";
+            ResponseCookie cookie = ResponseCookie.from("viewedEvents", newValue)
+                    .path("/")
+                    .maxAge(60 * 60 * 24)
+                    .httpOnly(true)
+                    .secure(false)
+                    .build();
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                    .body(detail);
+        }
+        return ResponseEntity.ok(detail);
+    }
 
-	// 지도에서 지역별 마커 숫자를 표시하기 위한 API
-	@GetMapping("/counts")
-	public ResponseEntity<List<EventRegionCountDto>> getEventCountsByRegion() {
-		return ResponseEntity.ok(eventService.getEventCountsByRegion());
-	}
+    @GetMapping("/counts")
+    public ResponseEntity<List<EventRegionCountDto>> getEventCountsByRegion() {
+        return ResponseEntity.ok(eventService.getEventCountsByRegion());
+    }
 
-	// 달력 전용 지역별 날짜별 행사 개수 조회
-	@GetMapping("/calendar-counts")
-	public ResponseEntity<List<EventDailyCountDto>> getDailyEventCountsByRegion(
-			@RequestParam("regionId") Long regionId) {
-		return ResponseEntity.ok(eventService.getDailyEventCountsByRegion(regionId));
-	}
-
+    @GetMapping("/calendar-counts")
+    public ResponseEntity<List<EventDailyCountDto>> getDailyEventCountsByRegion(
+            @RequestParam("regionId") Long regionId) {
+        return ResponseEntity.ok(eventService.getDailyEventCountsByRegion(regionId));
+    }
 }

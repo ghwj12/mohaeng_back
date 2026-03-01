@@ -43,7 +43,6 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     private Long getCurrentUserId() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
-        // ✅ 프로젝트 전반에서 principal 타입이 섞여서 들어오는 케이스 방어
         if (principal instanceof CustomUserPrincipal cup) {
             return Long.parseLong(cup.getUserId());
         }
@@ -80,6 +79,11 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         Long userId = getCurrentUserId();
         dto.setUserId(userId);
 
+        // ✅ Issue 6: 행사 참여 중복 신청 방지
+        if (repo.existsActiveParticipation(userId, dto.getEventId())) {
+            throw new IllegalStateException("이미 신청한 행사입니다.");
+        }
+
         // 행사 가격 확인
         EventEntity event = eventRepository.findById(dto.getEventId())
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 행사입니다."));
@@ -100,6 +104,21 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         return eventService.getEventDetail(eventId, false);
     }
 
+    // ✅ Issue 6: 현재 유저의 행사/부스 신청 여부 확인
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasActiveParticipation(Long eventId) {
+        Long userId = getCurrentUserId();
+        return repo.existsActiveParticipation(userId, eventId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasActiveBooth(Long eventId) {
+        Long userId = getCurrentUserId();
+        return repo.existsActiveBooth(userId, eventId);
+    }
+
     @Override
     @Transactional
     public void cancelParticipation(Long pctId) {
@@ -112,7 +131,6 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     @Override
     @Transactional
     public void deleteParticipation(Long pctId) {
-        // ✅ 기존 호환: 내부에서 현재 사용자 ID를 가져와서 권한 체크
         deleteParticipation(pctId, getCurrentUserId());
     }
 
@@ -122,12 +140,9 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         EventParticipationEntity e = repo.findParticipationById(pctId)
                 .orElseThrow(() -> new IllegalArgumentException("참여 신청 없음"));
 
-        // ✅ 본인 참여내역만 삭제 가능
         if (e.getUserId() == null || !e.getUserId().equals(userId)) {
             throw new IllegalStateException("본인 참여내역만 삭제할 수 있습니다.");
         }
-
-        // ✅ 소프트 삭제
 
         e.setPctStatus("참여삭제");
         repo.saveParticipation(e);
@@ -165,8 +180,14 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     public Long submitBoothApply(Long eventId, ParticipationBoothDto dto, List<MultipartFile> files) {
         validateEventId(eventId, dto.getHostBoothId());
 
-        ParticipationBoothEntity booth = dto.toEntity();
         Long userId = getCurrentUserId();
+
+        // ✅ Issue 6: 부스 중복 신청 방지
+        if (repo.existsActiveBooth(userId, eventId)) {
+            throw new IllegalStateException("이미 신청한 부스입니다.");
+        }
+
+        ParticipationBoothEntity booth = dto.toEntity();
         booth.setUserId(userId);
 
         // 부스 가격 확인 (무료면 바로 결제완료)

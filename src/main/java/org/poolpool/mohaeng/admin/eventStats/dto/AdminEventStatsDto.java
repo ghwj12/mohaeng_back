@@ -33,34 +33,40 @@ public class AdminEventStatsDto {
 
     @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
     public static class EventAnalysisDetailResponse {
-    	
-    	private String topicIds;    // ✅ 추가
-    	private String hashtagIds;
-    	
+
+        private String topicIds;
+        private String hashtagIds;
+
         private Long eventId;
         private String title;
-        private String thumbnail;           // ✅ 썸네일 URL (파일명만 — 프론트에서 경로 조합)
+        private String thumbnail;
         private String eventPeriod;
         private String location;
         private String simpleExplain;
         private String hashtags;
+
         // 주최자
         private String hostName;
         private String hostEmail;
         private String hostPhone;
+        private String hostPhoto;       // ✅ Issue 5: 주최자 프로필 사진 파일명 (profileImg)
+
         // 통계
         private Integer viewCount;
         private Integer participantCount;
-        private Integer reviewCount;        // TODO: 리뷰 엔티티 연동 시 업데이트
-        private Integer wishCount;          // TODO: 위시리스트 엔티티 연동 시 업데이트
+        private Integer reviewCount;    // ✅ Issue 4
+        private Integer wishCount;      // ✅ Issue 3
+
         // 수익
         private Integer totalRevenue;
-        private Integer participantRevenue; // price * 결제완료 참여자수
-        private Integer boothRevenue;       // (totalCount - remainCount) * boothPrice 합산
+        private Integer participantRevenue;
+        private Integer boothRevenue;
+
         // 성별
         private Long maleCount;
         private Long femaleCount;
-        // 연령대 { "20대": 5, "30대": 12, ... }
+
+        // 연령대
         private Map<String, Long> ageGroupCounts;
     }
 }

@@ -15,15 +15,8 @@ public interface EventParticipationService {
 
     void cancelParticipation(Long pctId);
 
-    /**
-     * ✅ (소프트삭제) 참여내역 삭제 처리
-     * - DB row는 유지하고 상태를 '참여삭제'로 변경
-     */
     void deleteParticipation(Long pctId);
 
-    /**
-     * ✅ (소프트삭제) 참여내역 삭제 처리(권한 체크용 사용자ID 포함)
-     */
     void deleteParticipation(Long pctId, Long userId);
 
     List<ParticipationBoothDto> getParticipationBoothList(Long userId);
@@ -31,8 +24,11 @@ public interface EventParticipationService {
     Long submitBoothApply(Long eventId, ParticipationBoothDto dto, List<MultipartFile> files);
 
     void cancelBoothParticipation(Long pctBoothId);
-    
-    EventDetailDto getEventDetail(Long eventId);
-    
-}
 
+    EventDetailDto getEventDetail(Long eventId);
+
+    // ✅ Issue 6: 중복 신청 여부 체크
+    boolean hasActiveParticipation(Long eventId);
+
+    boolean hasActiveBooth(Long eventId);
+}
