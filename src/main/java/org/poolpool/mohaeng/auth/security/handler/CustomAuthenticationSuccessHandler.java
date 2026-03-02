@@ -32,6 +32,7 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
 		OAuth2User oauthUser = (OAuth2User) authentication.getPrincipal();
 
 		String email = oauthUser.getAttribute("email");
+		Boolean isNewUser = oauthUser.getAttribute("isNewUser");
 
 		// 이메일로 회원 고유ID 찾기
 		UserEntity user = userRepository.findByEmail(email)
@@ -47,7 +48,8 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
 		
 		String redirectUrl = "http://localhost:3000/oauthSuccess"
 	            + "?accessToken=" + access
-	            + "&refreshToken=" + refresh;
+	            + "&refreshToken=" + refresh
+	            + "&isNewUser=" + isNewUser;
 
 	    response.sendRedirect(redirectUrl);
 

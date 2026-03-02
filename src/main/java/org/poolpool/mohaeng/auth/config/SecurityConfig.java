@@ -3,6 +3,7 @@ package org.poolpool.mohaeng.auth.config;
 import org.poolpool.mohaeng.auth.security.authorization.EndpointPolicy;
 import org.poolpool.mohaeng.auth.security.filter.JwtAuthenticationFilter;
 import org.poolpool.mohaeng.auth.security.filter.JwtExceptionFilter;
+import org.poolpool.mohaeng.auth.security.handler.CustomAuthenticationFailureHandler;
 import org.poolpool.mohaeng.auth.security.handler.CustomAuthenticationSuccessHandler;
 import org.poolpool.mohaeng.auth.security.handler.RestAccessDeniedHandler;
 import org.poolpool.mohaeng.auth.security.handler.RestAuthenticationEntryPoint;
@@ -37,6 +38,7 @@ public class SecurityConfig {
     private final JwtTokenProvider jwt;
     private final CustomOAuth2UserService customOAuth2UserService;
     private final CustomAuthenticationSuccessHandler customAuthenticationSuccessHandler;
+    private final CustomAuthenticationFailureHandler customAuthenticationFailureHandler;
 
     /**
      * AuthenticationManager Bean 등록 (핵심!)
@@ -146,6 +148,7 @@ public class SecurityConfig {
                     .oidcUserService(customOAuth2UserService)
                 )
                 .successHandler(customAuthenticationSuccessHandler)
+                .failureHandler(customAuthenticationFailureHandler)
             )
 
             // 401/403 JSON 처리

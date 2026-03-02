@@ -1,5 +1,7 @@
 package org.poolpool.mohaeng.auth.service;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import org.poolpool.mohaeng.user.entity.SocialUserEntity;
@@ -13,6 +15,9 @@ import org.poolpool.mohaeng.user.type.UserType;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +34,8 @@ public class CustomOAuth2UserService extends OidcUserService {
     public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
     	
     	OidcUser oauth2User = super.loadUser(userRequest);
+    	//신규 회원 유무
+    	boolean isNewUser = false;
 
         String provider = userRequest.getClientRegistration().getRegistrationId().toUpperCase();
         String providerId = oauth2User.getAttribute("sub"); 
@@ -43,15 +50,21 @@ public class CustomOAuth2UserService extends OidcUserService {
 
             //일반 회원가입 회원이면 소셜 연동 불가
             if (existingUser.getSignupType() == SignupType.BASIC) {
-                throw new OAuth2AuthenticationException(
-                    "해당 이메일은 일반 회원가입 계정입니다. 소셜 로그인으로 연동할 수 없습니다."
-                );
+            	throw new OAuth2AuthenticationException(
+        		    new OAuth2Error(
+        		        "social_link_error",
+        		        "해당 이메일은 일반 회원가입으로 가입된 계정으로, 소셜 로그인으로 연동할 수 없습니다.",
+        		        null
+        		    )
+        		);
             }
 
             //이미 소셜 계정 연결되어 있으면 그대로 사용
             return oauth2User;
+            
         }
 
+        isNewUser = true;
         //신규 가입 (USERS + SOCIAL_USER 생성)
         UserEntity user = userRepository.save(
                 UserEntity.builder()
@@ -71,7 +84,14 @@ public class CustomOAuth2UserService extends OidcUserService {
                         .providerId(providerId)
                         .build()
         );
+        
+        Map<String, Object> claims = new HashMap<>(oauth2User.getClaims());
+        claims.put("isNewUser", isNewUser);
 
-        return oauth2User;
+//        return oauth2User;
+        return new DefaultOidcUser(
+        		oauth2User.getAuthorities(),
+        		oauth2User.getIdToken(),
+                new OidcUserInfo(claims));
     }
 }
