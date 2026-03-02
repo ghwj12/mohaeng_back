@@ -165,6 +165,12 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     public void cancelBoothParticipation(Long pctBoothId) {
         ParticipationBoothEntity booth = repo.findBoothById(pctBoothId)
                 .orElseThrow(() -> new IllegalArgumentException("부스 신청 없음"));
+
+        // ✅ 대기 상태(신청/결제완료)에서만 취소 가능
+        String st = booth.getStatus();
+        if (st != null && (st.equals("승인") || st.equals("반려"))) {
+            throw new IllegalStateException("이미 처리된 신청은 취소할 수 없습니다.");
+        }
         booth.setStatus("취소");
         booth.setUpdatedAt(LocalDateTime.now());
         repo.saveBooth(booth);
