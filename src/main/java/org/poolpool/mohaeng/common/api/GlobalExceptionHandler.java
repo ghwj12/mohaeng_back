@@ -60,7 +60,17 @@ public class GlobalExceptionHandler {
     }
 
     
-    // ✅ 비즈니스 로직/검증 실패: 400으로 내려서 프론트에서 메시지 처리 가능하게
+    
+
+// ✅ 인증/인가 예외: AuthException의 status/code를 그대로 내려줌
+@ExceptionHandler(org.poolpool.mohaeng.auth.exception.AuthException.class)
+public ResponseEntity<ApiResponse<String>> handleAuthException(org.poolpool.mohaeng.auth.exception.AuthException e) {
+    return ResponseEntity
+            .status(e.getStatus())
+            .body(ApiResponse.fail(e.getMessage(), e.getCode()));
+}
+
+// ✅ 비즈니스 로직/검증 실패: 400으로 내려서 프론트에서 메시지 처리 가능하게
     @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class})
     public ResponseEntity<ApiResponse<String>> handleIllegalState(RuntimeException e) {
         return ResponseEntity
