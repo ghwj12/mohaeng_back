@@ -1,6 +1,8 @@
 package org.poolpool.mohaeng.event.wishlist.service;
 
 import org.poolpool.mohaeng.common.api.PageResponse;
+import org.poolpool.mohaeng.event.list.entity.EventEntity;
+import org.poolpool.mohaeng.event.list.repository.EventRepository; // ✅ 추가
 import org.poolpool.mohaeng.event.wishlist.dto.WishlistCreateRequestDto;
 import org.poolpool.mohaeng.event.wishlist.dto.WishlistItemDto;
 import org.poolpool.mohaeng.event.wishlist.dto.WishlistToggleRequestDto;
@@ -16,17 +18,22 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
 public class EventWishlistServiceImpl implements EventWishlistService {
 
     private final EventWishlistRepository wishlistRepository;
+    private final EventRepository eventRepository; // ✅ 추가
     private final Logger log = LoggerFactory.getLogger(EventWishlistServiceImpl.class);
 
-    public EventWishlistServiceImpl(EventWishlistRepository wishlistRepository) {
+    public EventWishlistServiceImpl(EventWishlistRepository wishlistRepository,
+                                    EventRepository eventRepository) { // ✅ 생성자 수정
         this.wishlistRepository = wishlistRepository;
+        this.eventRepository = eventRepository;
     }
 
     @Override
@@ -35,12 +42,23 @@ public class EventWishlistServiceImpl implements EventWishlistService {
         Page<EventWishlistEntity> pageResult =
                 wishlistRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable);
 
-        List<WishlistItemDto> content = pageResult.getContent()
-                .stream()
-                .map(WishlistItemDto::fromEntity)
+        List<EventWishlistEntity> wishes = pageResult.getContent();
+
+        // ✅ eventIds 모아서 한 번에 조회(N+1 방지)
+        List<Long> eventIds = wishes.stream()
+                .map(EventWishlistEntity::getEventId)
+                .filter(Objects::nonNull)
+                .distinct()
                 .toList();
 
-        // PageResponse는 1-base로 맞춤
+        Map<Long, EventEntity> eventMap = eventRepository.findAllById(eventIds).stream()
+                .collect(Collectors.toMap(EventEntity::getEventId, Function.identity()));
+
+        List<WishlistItemDto> content = wishes.stream()
+                .map(w -> WishlistItemDto.fromEntity(w, eventMap.get(w.getEventId())))
+                .toList();
+
+        // PageResponse는 1-base 유지(기존 유지)
         return new PageResponse<>(
                 content,
                 pageResult.getNumber() + 1,
@@ -68,7 +86,6 @@ public class EventWishlistServiceImpl implements EventWishlistService {
             log.info("wishlist add userId={} eventId={} wishId={}", userId, eventId, saved.getWishId());
             return saved.getWishId();
         } catch (DataIntegrityViolationException e) {
-            // 동시성/DB 유니크 제약 등으로 insert 실패해도 "중복"으로 통일
             throw new WishlistAlreadyExistsException(userId, eventId);
         }
     }
@@ -94,7 +111,9 @@ public class EventWishlistServiceImpl implements EventWishlistService {
         EventWishlistEntity latest = wishlistRepository.findByWishIdAndUserId(wishId, userId)
                 .orElseThrow(() -> new WishlistNotFoundOrForbiddenException(wishId));
 
+        EventEntity event = eventRepository.findById(latest.getEventId()).orElse(null);
+
         log.info("wishlist toggle userId={} wishId={} enabled={}", userId, wishId, latest.isNotificationEnabled());
-        return WishlistItemDto.fromEntity(latest);
+        return WishlistItemDto.fromEntity(latest, event);
     }
 }
