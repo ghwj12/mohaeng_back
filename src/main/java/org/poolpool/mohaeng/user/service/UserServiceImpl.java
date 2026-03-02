@@ -6,15 +6,25 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.poolpool.mohaeng.auth.dto.response.TokenResponse;
+import org.poolpool.mohaeng.auth.token.jwt.JwtProperties;
+import org.poolpool.mohaeng.auth.token.jwt.JwtTokenProvider;
 import org.poolpool.mohaeng.auth.token.refresh.repository.RefreshTokenRepository;
+import org.poolpool.mohaeng.auth.token.refresh.service.RefreshTokenService;
 import org.poolpool.mohaeng.common.config.UploadProperties;
 import org.poolpool.mohaeng.common.service.MailService;
 import org.poolpool.mohaeng.common.util.FileNameChange;
+import org.poolpool.mohaeng.user.dto.SocialUserDto;
 import org.poolpool.mohaeng.user.dto.UserDto;
+import org.poolpool.mohaeng.user.entity.SocialUserEntity;
 import org.poolpool.mohaeng.user.entity.UserEntity;
 import org.poolpool.mohaeng.user.repository.SocialUserRepository;
 import org.poolpool.mohaeng.user.repository.UserRepository;
+import org.poolpool.mohaeng.user.type.SignupType;
+import org.poolpool.mohaeng.user.type.UserRole;
 import org.poolpool.mohaeng.user.type.UserStatus;
+import org.poolpool.mohaeng.user.type.UserType;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -34,6 +44,9 @@ public class UserServiceImpl implements UserService{
 	private final SocialUserRepository socialUserRepository;
 	private final RefreshTokenRepository refreshTokenRepository;
 	private final MailService mailService;
+	private final JwtTokenProvider jwtTokenProvider;
+    private final JwtProperties jwtProperties;
+    private final RefreshTokenService refreshTokenService;
 
 	//이메일 중복 확인
 	@Override
@@ -204,5 +217,42 @@ public class UserServiceImpl implements UserService{
 		
 		refreshTokenRepository.deleteByUserId(userId);
 		
+	}
+
+	//소셜 회원가입
+	@Override
+	public TokenResponse socialSignup(SocialUserDto socialUserDto) {
+
+		UserEntity user = userRepository.save(
+                UserEntity.builder()
+                        .email(socialUserDto.getEmail())
+                        .name(socialUserDto.getName())
+                        .phone(socialUserDto.getPhone())
+                        .signupType(SignupType.GOOGLE)
+                        .userType(UserType.PERSONAL)
+                        .userRole(UserRole.USER)
+                        .userStatus(UserStatus.ACTIVE)
+                        .build()
+        );
+
+        socialUserRepository.save(
+                SocialUserEntity.builder()
+                        .user(user)
+                        .provider(socialUserDto.getProvider())
+                        .providerId(socialUserDto.getProviderId())
+                        .build()
+        );
+        
+        UserEntity createdUser = userRepository.findByEmail(socialUserDto.getEmail())
+    	        .orElseThrow(() -> new BadCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다."));
+        Long userId = createdUser.getUserId();
+        
+        String access = jwtTokenProvider.createAccessToken(userId,  "ROLE_" + user.getUserRole());
+        String refresh = jwtTokenProvider.createRefreshToken(userId,  "ROLE_" + user.getUserRole());
+
+        LocalDateTime now = LocalDateTime.now();
+        refreshTokenService.upsert(userId, refresh, now, now.plusDays(1));
+        
+        return new TokenResponse(access, refresh, jwtProperties.accessExp(), jwtProperties.refreshExp());
 	}
 }

@@ -2,6 +2,8 @@ package org.poolpool.mohaeng.user.service;
 
 import java.util.List;
 
+import org.poolpool.mohaeng.auth.dto.response.TokenResponse;
+import org.poolpool.mohaeng.user.dto.SocialUserDto;
 import org.poolpool.mohaeng.user.dto.UserDto;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -33,6 +35,9 @@ public interface UserService {
 
 	//회원 탈퇴
 	void patchWithdrawal(UserDto user);
+
+	//소셜 회원가입
+	TokenResponse socialSignup(SocialUserDto socialUserDto);
 	
 	
 }

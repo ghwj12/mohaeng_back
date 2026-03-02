@@ -7,8 +7,10 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.poolpool.mohaeng.auth.dto.request.LoginRequest;
+import org.poolpool.mohaeng.auth.dto.response.TokenResponse;
 import org.poolpool.mohaeng.common.api.ApiResponse;
 import org.poolpool.mohaeng.event.host.service.EventHostService;
+import org.poolpool.mohaeng.user.dto.SocialUserDto;
 import org.poolpool.mohaeng.user.dto.UserDto;
 import org.poolpool.mohaeng.user.service.UserService;
 import org.poolpool.mohaeng.user.type.SignupType;
@@ -198,4 +200,19 @@ public class UserController {
 	    }
 	    return ResponseEntity.ok(ApiResponse.ok("조회 성공", user));
 	}
+	
+	//소셜 회원가입
+	@PostMapping("/socialSignupComplete")
+	public ResponseEntity<TokenResponse> completeSocialSignup(@RequestBody SocialUserDto socialUserDto) {
+	    
+	    try {
+	        // 저장 후 access/refresh 토큰 생성
+	    	TokenResponse tokens = userService.socialSignup(socialUserDto);
+	        return ResponseEntity.ok(tokens);
+	    } catch (Exception e) {
+	        log.error("소셜 회원가입 실패", e);
+	        return ResponseEntity.status(500).body(null);
+	    }
+	}
+	
 }
