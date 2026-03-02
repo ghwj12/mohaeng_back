@@ -22,6 +22,8 @@ import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothFacilityEntity;
 import org.poolpool.mohaeng.event.participation.repository.EventParticipationRepository;
 import org.poolpool.mohaeng.auth.security.principal.CustomUserPrincipal;
+import org.poolpool.mohaeng.notification.service.NotificationService;   //  추가
+import org.poolpool.mohaeng.notification.type.NotiTypeId;            //  추가
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,8 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     private final UploadProperties uploadProperties;
     private final EventRepository eventRepository;
     private final EventService eventService;
+
+    private final NotificationService notificationService; //  추가
 
     private Long getCurrentUserId() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -68,30 +72,22 @@ public class EventParticipationServiceImpl implements EventParticipationService 
                 .toList();
     }
 
-    /**
-     * 행사 참가 신청 제출
-     * - 무료 행사: 바로 '결제완료' (통계에 즉시 반영)
-     * - 유료 행사: '결제대기' → 결제 승인 후 PaymentService에서 '결제완료'로 업데이트
-     */
     @Override
     @Transactional
     public Long submitParticipation(EventParticipationDto dto) {
         Long userId = getCurrentUserId();
         dto.setUserId(userId);
 
-        // ✅ Issue 6: 행사 참여 중복 신청 방지
         if (repo.existsActiveParticipation(userId, dto.getEventId())) {
             throw new IllegalStateException("이미 신청한 행사입니다.");
         }
 
-        // 행사 가격 확인
         EventEntity event = eventRepository.findById(dto.getEventId())
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 행사입니다."));
 
         EventParticipationEntity e = dto.toEntity();
 
         boolean isFree = (event.getPrice() == null || event.getPrice() == 0);
-        // 무료: 결제완료 / 유료: 결제대기 (결제 성공 시 PaymentService가 결제완료로 변경)
         e.setPctStatus(isFree ? "결제완료" : "결제대기");
 
         EventParticipationEntity saved = repo.saveParticipation(e);
@@ -104,7 +100,6 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         return eventService.getEventDetail(eventId, false);
     }
 
-    // ✅ Issue 6: 현재 유저의 행사/부스 신청 여부 확인
     @Override
     @Transactional(readOnly = true)
     public boolean hasActiveParticipation(Long eventId) {
@@ -166,7 +161,6 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         ParticipationBoothEntity booth = repo.findBoothById(pctBoothId)
                 .orElseThrow(() -> new IllegalArgumentException("부스 신청 없음"));
 
-        // ✅ 대기 상태(신청/결제완료)에서만 취소 가능
         String st = booth.getStatus();
         if (st != null && (st.equals("승인") || st.equals("반려"))) {
             throw new IllegalStateException("이미 처리된 신청은 취소할 수 없습니다.");
@@ -188,7 +182,6 @@ public class EventParticipationServiceImpl implements EventParticipationService 
 
         Long userId = getCurrentUserId();
 
-        // ✅ Issue 6: 부스 중복 신청 방지
         if (repo.existsActiveBooth(userId, eventId)) {
             throw new IllegalStateException("이미 신청한 부스입니다.");
         }
@@ -196,7 +189,6 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         ParticipationBoothEntity booth = dto.toEntity();
         booth.setUserId(userId);
 
-        // 부스 가격 확인 (무료면 바로 결제완료)
         boolean isFree = (dto.getBoothPrice() == null || dto.getBoothPrice() == 0)
                       && (dto.getTotalPrice() == null || dto.getTotalPrice() == 0);
         booth.setStatus(isFree ? "결제완료" : "신청");
@@ -206,14 +198,21 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         saveFacilities(savedBooth.getPctBoothId(), dto.getFacilities());
         saveFiles(savedBooth, files, eventId);
 
-        // 부스 잔여수량 차감
         repo.decreaseBoothRemainCount(dto.getHostBoothId());
 
-        // 부대시설 잔여수량 차감
         if (dto.getFacilities() != null) {
             for (ParticipationBoothFacilityDto faci : dto.getFacilities()) {
                 repo.decreaseFacilityRemainCount(faci.getHostBoothFaciId(), faci.getFaciCount());
             }
+        }
+
+        //  부스 신청 알림(8): 주최자에게
+        EventEntity event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("행사 없음"));
+        Long hostId = (event.getHost() != null) ? event.getHost().getUserId() : null;
+
+        if (hostId != null && !hostId.equals(userId)) {
+            notificationService.create(hostId, NotiTypeId.BOOTH_RECEIVER, eventId, null);
         }
 
         return savedBooth.getPctBoothId();

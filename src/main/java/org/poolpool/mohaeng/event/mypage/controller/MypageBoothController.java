@@ -23,7 +23,7 @@ public class MypageBoothController {
     private final MypageBoothService service;
 
     /**
-     * ✅ 이 프로젝트의 JwtAuthenticationFilter는 Authentication principal에 'userId(String)'을 넣습니다.
+     *  이 프로젝트의 JwtAuthenticationFilter는 Authentication principal에 'userId(String)'을 넣습니다.
      *    (UsernamePasswordAuthenticationToken(userId, null, ...))
      * 그래서 Authentication#getName() 을 Long으로 파싱해서 사용합니다.
      */
@@ -39,21 +39,21 @@ public class MypageBoothController {
         }
     }
 
-    /** ✅ 부스 관리(내 신청 내역) */
+    /**  부스 관리(내 신청 내역) */
     @GetMapping("/booths")
     public ResponseEntity<List<BoothMypageResponse>> myBooths(Authentication authentication) {
         Long uid = currentUserId(authentication);
         return ResponseEntity.ok(service.getMyBooths(uid));
     }
 
-    /** ✅ 부스 관리(주최자: 받은 부스) */
+    /**  부스 관리(주최자: 받은 부스) */
     @GetMapping("/booths/received")
     public ResponseEntity<List<BoothMypageResponse>> receivedBooths(Authentication authentication) {
         Long uid = currentUserId(authentication);
         return ResponseEntity.ok(service.getReceivedBooths(uid));
     }
 
-    /** ✅ 부스 신청서 상세(주최자/신청자 모두 조회) */
+    /**  부스 신청서 상세(주최자/신청자 모두 조회) */
     @GetMapping("/booths/{pctBoothId}")
     public ResponseEntity<BoothApplicationDetailResponse> boothDetail(
             Authentication authentication,
@@ -62,7 +62,7 @@ public class MypageBoothController {
         return ResponseEntity.ok(service.getBoothApplicationDetail(uid, pctBoothId));
     }
 
-    /** ✅ (주최자) 승인 */
+    /**  (주최자) 승인 */
     @PutMapping("/booths/{pctBoothId}/approve")
     public ResponseEntity<Void> approve(Authentication authentication, @PathVariable("pctBoothId") Long pctBoothId) {
         Long uid = currentUserId(authentication);
@@ -70,7 +70,7 @@ public class MypageBoothController {
         return ResponseEntity.ok().build();
     }
 
-    /** ✅ (주최자) 반려 + 환불처리(결제 모듈 연동 지점) */
+    /**  (주최자) 반려 + 환불처리(결제 모듈 연동 지점) */
     @PutMapping("/booths/{pctBoothId}/reject")
     public ResponseEntity<Void> reject(Authentication authentication, @PathVariable("pctBoothId") Long pctBoothId) {
         Long uid = currentUserId(authentication);

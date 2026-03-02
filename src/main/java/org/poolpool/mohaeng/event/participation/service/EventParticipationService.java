@@ -27,7 +27,7 @@ public interface EventParticipationService {
 
     EventDetailDto getEventDetail(Long eventId);
 
-    // ✅ Issue 6: 중복 신청 여부 체크
+    //  Issue 6: 중복 신청 여부 체크
     boolean hasActiveParticipation(Long eventId);
 
     boolean hasActiveBooth(Long eventId);
