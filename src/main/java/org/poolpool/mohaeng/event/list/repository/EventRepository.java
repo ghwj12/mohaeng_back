@@ -22,16 +22,16 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
 
     // ✅ Issue 5: eventStatus 파라미터 추가 (NULL이면 전체 조회)
     @Query("SELECT e FROM EventEntity e WHERE "
-            + "(:keyword IS NULL OR e.title LIKE CONCAT('%', :keyword, '%') OR e.simpleExplain LIKE CONCAT('%', :keyword, '%')) AND "
-            + "(:regionId IS NULL OR e.region.regionId BETWEEN :regionMin AND :regionMax) AND "
-            + "(:filterStart IS NULL OR e.endDate >= :filterStart) AND "
-            + "(:filterEnd IS NULL OR e.startDate <= :filterEnd) AND "
-            + "(:categoryId IS NULL OR e.category.categoryId = :categoryId) AND "
-            + "(:checkFree = false OR e.price = 0) AND "
-            + "(:hideClosed = false OR e.endDate >= :today) AND "
-            + "e.eventStatus NOT IN ('DELETED','행사삭제') AND "
-            + "(:eventStatus IS NULL OR e.eventStatus = :eventStatus) AND "
-            + "(:topicIds IS NULL OR e.topicIds LIKE CONCAT('%', :topicIds, '%'))")
+    	    + "(:keyword IS NULL OR e.title LIKE CONCAT('%', :keyword, '%') OR e.simpleExplain LIKE CONCAT('%', :keyword, '%')) AND "
+    	    + "(:regionId IS NULL OR e.region.regionId BETWEEN :regionMin AND :regionMax) AND "
+    	    + "(:filterStart IS NULL OR e.endDate >= :filterStart) AND "
+    	    + "(:filterEnd IS NULL OR e.startDate <= :filterEnd) AND "
+    	    + "(:categoryId IS NULL OR e.category.categoryId = :categoryId) AND "
+    	    + "(:checkFree = false OR e.price = 0) AND "
+    	    + "(:hideClosed = false OR e.endDate >= :today) AND "
+    	    + "e.eventStatus NOT IN ('DELETED','행사삭제') AND "
+    	    + "(:eventStatus IS NULL OR e.eventStatus = :eventStatus) AND "
+    	    + "(:topicIds IS NULL OR CONCAT(',', e.topicIds, ',') LIKE CONCAT('%,', :topicIds, ',%'))")
     Page<EventEntity> searchEvents(
             @Param("keyword") String keyword,
             @Param("regionId") Long regionId,
