@@ -66,7 +66,7 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
         Long userId = user.getUserId();
-        String access = jwtTokenProvider.createAccessToken(userId, "ROLE_" + user.getUserRole());
+        String access = jwtTokenProvider.createAccessToken(userId, "ROLE_" + user.getUserRole(), user.getName());
         String refresh = jwtTokenProvider.createRefreshToken(userId, "ROLE_" + user.getUserRole());
         LocalDateTime now = LocalDateTime.now();
         refreshTokenService.upsert(userId, refresh, now, now.plusDays(1));

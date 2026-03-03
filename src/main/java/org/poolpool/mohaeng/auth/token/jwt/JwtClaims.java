@@ -6,4 +6,5 @@ public final class JwtClaims {
     public static final String TYPE = "type";
     public static final String ACCESS = "access";
     public static final String REFRESH = "refresh";
+    public static final String USERNAME = "username";
 }

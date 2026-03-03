@@ -1,15 +1,17 @@
 package org.poolpool.mohaeng.auth.token.jwt;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
+
+import javax.crypto.SecretKey;
+
+import org.springframework.stereotype.Component;
+
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
-import org.springframework.stereotype.Component;
-
-import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
-import java.util.Date;
 
 @Component
 public class JwtTokenProvider {
@@ -22,25 +24,39 @@ public class JwtTokenProvider {
         this.key = Keys.hmacShaKeyFor(props.secret().getBytes(StandardCharsets.UTF_8));
     }
 
-    public String createAccessToken(Long userId, String role) {
-        return createToken(userId, role, JwtClaims.ACCESS, props.accessExp());
+    public String createAccessToken(Long userId, String role, String userName) {
+        return createToken(userId, role, JwtClaims.ACCESS, props.accessExp(), userName);
     }
 
     public String createRefreshToken(Long userId, String role) {
-        return createToken(userId, role, JwtClaims.REFRESH, props.refreshExp());
+        return createToken(userId, role, JwtClaims.REFRESH, props.refreshExp(), null);
     }
 
-    private String createToken(Long userId, String role, String type, long expMs) {
+    private String createToken(Long userId, String role, String type, long expMs, String userName) {
         long now = System.currentTimeMillis();
         
-        return Jwts.builder()
-                .subject(String.valueOf(userId))
-                .claim(JwtClaims.ROLE, role)
-                .claim(JwtClaims.TYPE, type)
-                .issuedAt(new Date(now))
-                .expiration(new Date(now + expMs))
-                .signWith(key)
-                .compact();
+        //access 토큰일 경우 사용자 이름 추가
+        if(type == JwtClaims.ACCESS) {
+        	return Jwts.builder()
+        			.subject(String.valueOf(userId))
+        			.claim(JwtClaims.ROLE, role)
+        			.claim(JwtClaims.TYPE, type)
+        			.claim(JwtClaims.USERNAME, userName)
+        			.issuedAt(new Date(now))
+        			.expiration(new Date(now + expMs))
+        			.signWith(key)
+        			.compact();
+
+        } else {
+        	return Jwts.builder()
+        			.subject(String.valueOf(userId))
+        			.claim(JwtClaims.ROLE, role)
+        			.claim(JwtClaims.TYPE, type)
+        			.issuedAt(new Date(now))
+        			.expiration(new Date(now + expMs))
+        			.signWith(key)
+        			.compact();
+        }
     }
 
     

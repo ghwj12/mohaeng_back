@@ -51,7 +51,7 @@ public class AuthService {
         Long userId = user.getUserId();
         user.setLastLoginAt(LocalDate.now()); 
     	
-        String access = jwtTokenProvider.createAccessToken(userId, role);
+        String access = jwtTokenProvider.createAccessToken(userId, role, user.getName());
         String refresh = jwtTokenProvider.createRefreshToken(userId, role);
 
         LocalDateTime now = LocalDateTime.now();
@@ -71,8 +71,13 @@ public class AuthService {
         if (!refreshTokenService.matches(userId, refreshToken)) {
             throw new RuntimeException("refresh not matched");
         }
+        
+        System.out.println("refresh userId : " + userId);
+        
+    	UserEntity user = userRepository.findById(userId)
+    	        .orElseThrow(() -> new BadCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다."));
 
-        String newAccess = jwtTokenProvider.createAccessToken(userId, role);
+        String newAccess = jwtTokenProvider.createAccessToken(userId, role, user.getName());
 
         String newRefresh = null;
         if (extendLogin) {

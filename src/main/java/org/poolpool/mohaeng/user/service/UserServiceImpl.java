@@ -247,7 +247,7 @@ public class UserServiceImpl implements UserService{
     	        .orElseThrow(() -> new BadCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다."));
         Long userId = createdUser.getUserId();
         
-        String access = jwtTokenProvider.createAccessToken(userId,  "ROLE_" + user.getUserRole());
+        String access = jwtTokenProvider.createAccessToken(userId,  "ROLE_" + user.getUserRole(), user.getName());
         String refresh = jwtTokenProvider.createRefreshToken(userId,  "ROLE_" + user.getUserRole());
 
         LocalDateTime now = LocalDateTime.now();
