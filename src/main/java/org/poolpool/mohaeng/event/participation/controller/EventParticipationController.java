@@ -1,5 +1,7 @@
 package org.poolpool.mohaeng.event.participation.controller;
 
+import org.poolpool.mohaeng.event.list.entity.EventEntity;
+
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -20,6 +22,11 @@ import org.poolpool.mohaeng.event.participation.repository.EventParticipationRep
 import org.poolpool.mohaeng.event.participation.service.EventParticipationService;
 import org.poolpool.mohaeng.payment.entity.PaymentEntity;
 import org.poolpool.mohaeng.payment.repository.PaymentRepository;
+
+//  부스 알림 추가
+import org.poolpool.mohaeng.notification.service.NotificationService;
+import org.poolpool.mohaeng.notification.type.NotiTypeId;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -45,6 +52,9 @@ public class EventParticipationController {
     private final PaymentRepository paymentRepository;
     private final EventRepository eventRepository;
     private final ObjectMapper objectMapper;
+
+    //  알림 서비스 주입
+    private final NotificationService notificationService;
 
     @PersistenceContext
     private EntityManager em;
@@ -292,16 +302,54 @@ public class EventParticipationController {
         return ResponseEntity.ok(list.stream().map(BoothListResponseDto::fromEntity).toList());
     }
 
+    //  승인 + 알림(9)
     @PutMapping("/approveBooth")
-    public ResponseEntity<?> approveBooth(@RequestParam Long pctBoothId) {
+    @Transactional
+    public ResponseEntity<?> approveBooth(@RequestParam("pctBoothId") Long pctBoothId) {
         participationService.approveBooth(pctBoothId);
+
+        try {
+            ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId).orElse(null);
+            Long eventId = participationRepository.findEventIdByPctBoothId(pctBoothId);
+
+            if (booth != null && booth.getUserId() != null && eventId != null) {
+                notificationService.create(booth.getUserId(), NotiTypeId.BOOTH_ACCEPT, eventId, null);
+                log.info("[BOOTH_NOTI] created type=9 applicantId={} eventId={} pctBoothId={}",
+                        booth.getUserId(), eventId, pctBoothId);
+            } else {
+                log.info("[BOOTH_NOTI] skipped type=9 boothNull={} eventId={} pctBoothId={}",
+                        (booth == null), eventId, pctBoothId);
+            }
+        } catch (Exception e) {
+            log.error("[BOOTH_NOTI] failed type=9 pctBoothId={}", pctBoothId, e);
+        }
+
         return ResponseEntity.ok(Map.of("message", "부스 신청이 승인되었습니다."));
     }
 
+    //  반려 + 알림(10)
     @PutMapping("/rejectBooth")
-    public ResponseEntity<?> rejectBooth(@RequestParam Long pctBoothId) {
+    @Transactional
+    public ResponseEntity<?> rejectBooth(@RequestParam("pctBoothId") Long pctBoothId) {
         participationService.rejectBooth(pctBoothId);
-        return ResponseEntity.ok(Map.of("message", "부스 신청이 반려되었습니다."));
+
+        try {
+            ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId).orElse(null);
+            Long eventId = participationRepository.findEventIdByPctBoothId(pctBoothId);
+
+            if (booth != null && booth.getUserId() != null && eventId != null) {
+                notificationService.create(booth.getUserId(), NotiTypeId.BOOTH_REJECT, eventId, null);
+                log.info("[BOOTH_NOTI] created type=10 applicantId={} eventId={} pctBoothId={}",
+                        booth.getUserId(), eventId, pctBoothId);
+            } else {
+                log.info("[BOOTH_NOTI] skipped type=10 boothNull={} eventId={} pctBoothId={}",
+                        (booth == null), eventId, pctBoothId);
+            }
+        } catch (Exception e) {
+            log.error("[BOOTH_NOTI] failed type=10 pctBoothId={}", pctBoothId, e);
+        }
+
+        return ResponseEntity.ok(Map.of("message", "부스 신청이 반려되었습니다. 결제금액이 전액 환불됩니다."));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
