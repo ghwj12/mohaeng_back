@@ -3,7 +3,7 @@ package org.poolpool.mohaeng.event.participation.entity;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "PARTICIPATION_BOOTH_FACILITY")
+@Table(name = "participation_booth_facility")
 public class ParticipationBoothFacilityEntity {
 
     @Id

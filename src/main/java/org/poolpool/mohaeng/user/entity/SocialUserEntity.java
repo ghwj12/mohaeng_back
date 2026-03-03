@@ -21,7 +21,7 @@ import lombok.Setter;
 
 @Entity
 @Table(
-    name = "SOCIAL_USER",
+    name = "social_user",
     uniqueConstraints = @UniqueConstraint(name = "UK_USER_SOCIAL_USER_ID", columnNames = "USER_ID")
 )
 @Getter

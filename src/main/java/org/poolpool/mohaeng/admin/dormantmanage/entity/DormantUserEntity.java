@@ -25,7 +25,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "DORMANT_USER")
+@Table(name = "dormant_user")
 @Getter
 @Setter
 @NoArgsConstructor
