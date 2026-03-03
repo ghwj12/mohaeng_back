@@ -15,7 +15,9 @@ public class CustomAuthenticationFailureHandler implements AuthenticationFailure
     public void onAuthenticationFailure(HttpServletRequest request,
                                         HttpServletResponse response,
                                         AuthenticationException exception) throws IOException {
-        String errorMessage = "소셜 로그인에 실패했습니다.";
+
+    	String errorMessage = "구글 계정 연동 회원가입에 실패했습니다. 다시 시도해주세요.";
+
         if (exception instanceof OAuth2AuthenticationException oauthEx) {
             String description = oauthEx.getError().getDescription();
             if (description != null && !description.isBlank()) {
