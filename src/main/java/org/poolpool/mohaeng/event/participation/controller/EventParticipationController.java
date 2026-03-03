@@ -161,7 +161,8 @@ public class EventParticipationController {
                     FileEntity fileEntity = FileEntity.builder()
                             .pctBooth(booth)
                             .event(eventRef) // 👈 .eventId() 대신 .event() 객체를 넣습니다!
-                            .fileType("PBOOTH")
+                            // 마이페이지 조회 쿼와 타입을 통일
+                            .fileType("P_BOOTH")
                             .originalFileName(originalName)
                             .renameFileName(saveName)
                             .sortOrder(0)

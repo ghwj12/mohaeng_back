@@ -124,10 +124,14 @@ public class MypageBoothRepository {
                 "  pb.PCT_BOOTH_ID, pb.HOST_BOOTH_ID, pb.USER_ID, pb.HOMEPAGE_URL, pb.BOOTH_TITLE, pb.BOOTH_TOPIC,\n" +
                 "  pb.MAIN_ITEMS, pb.DESCRIPTION, pb.BOOTH_COUNT, pb.BOOTH_PRICE, pb.FACILITY_PRICE, pb.TOTAL_PRICE,\n" +
                 "  pb.STATUS, pb.CREATED_AT, pb.APPROVED_DATE,\n" +
-                "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE\n" +
+                // event
+                "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, e.START_DATE, e.END_DATE,\n" +
+                // applicant(user)
+                "  u.NAME, u.EMAIL, u.PHONE, u.BUSINESS_NUM\n" +
                 "FROM participation_booth pb\n" +
                 "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
+                "JOIN users u ON pb.USER_ID = u.USER_ID\n" +
                 "WHERE pb.PCT_BOOTH_ID = ?\n" +
                 "  AND (pb.USER_ID = ? OR e.HOST_ID = ?)";
 
@@ -162,6 +166,10 @@ public class MypageBoothRepository {
                 .eventThumbnail(toStr(r[17]))
                 .startDate(toLd(r[18]))
                 .endDate(toLd(r[19]))
+                .applicantName(toStr(r[20]))
+                .applicantEmail(toStr(r[21]))
+                .applicantPhone(toStr(r[22]))
+                .applicantBusinessNum(toStr(r[23]))
                 .build();
 
         // files
@@ -187,6 +195,10 @@ public class MypageBoothRepository {
                 .eventThumbnail(base.getEventThumbnail())
                 .startDate(base.getStartDate())
                 .endDate(base.getEndDate())
+                .applicantName(base.getApplicantName())
+                .applicantEmail(base.getApplicantEmail())
+                .applicantPhone(base.getApplicantPhone())
+                .applicantBusinessNum(base.getApplicantBusinessNum())
                 .files(files)
                 .build();
     }
@@ -195,7 +207,8 @@ public class MypageBoothRepository {
         String sql = "\n" +
                 "SELECT f.ORIGINAL_FILE_NAME, f.RENAME_FILE_NAME, f.SORT_ORDER\n" +
                 "FROM `file` f\n" +
-                "WHERE f.PCT_BOOTH_ID = ? AND f.FILE_TYPE = 'P_BOOTH'\n" +
+                // NOTE: 저장 로직에서 fileType이 'PBOOTH'로 저장되는 케이스가 있어 둘 다 호환
+                "WHERE f.PCT_BOOTH_ID = ? AND f.FILE_TYPE IN ('PBOOTH','P_BOOTH')\n" +
                 "ORDER BY f.SORT_ORDER ASC";
 
         @SuppressWarnings("unchecked")
