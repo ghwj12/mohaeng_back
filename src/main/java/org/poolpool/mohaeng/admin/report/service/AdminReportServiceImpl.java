@@ -13,7 +13,7 @@ import org.poolpool.mohaeng.event.list.entity.EventEntity;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
 import org.poolpool.mohaeng.notification.service.NotificationService;
 import org.poolpool.mohaeng.notification.type.NotiTypeId;
-import org.poolpool.mohaeng.user.repository.UserRepository; //  추가
+import org.poolpool.mohaeng.user.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -29,16 +29,19 @@ public class AdminReportServiceImpl implements AdminReportService {
     private final AdminReportRepository reportRepository;
     private final EventRepository eventRepository;
     private final NotificationService notificationService;
-    private final UserRepository userRepository; //  추가
+    private final UserRepository userRepository;
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<AdminReportListItemDto> getList(Pageable pageable) {
-        //  미처리(PENDING) 우선 + 최신순 정렬(Repository에 findAllForAdminOrder 추가한 버전 기준)
         Page<AdminReportFEntity> page = reportRepository.findAllForAdminOrder(pageable);
 
         List<AdminReportListItemDto> items = page.getContent().stream()
-            .map(r -> AdminReportListItemDto.fromEntity(r, getEventNameSafe(r.getEventId())))
+            .map(r -> AdminReportListItemDto.fromEntity(
+                r,
+                getEventNameSafe(r.getEventId()),
+                getEventThumbSafe(r.getEventId())
+            ))
             .toList();
 
         return new PageResponse<>(
@@ -57,13 +60,10 @@ public class AdminReportServiceImpl implements AdminReportService {
             .orElseThrow(() -> new EntityNotFoundException("신고가 존재하지 않습니다."));
 
         String eventName = getEventNameSafe(r.getEventId());
-
-        //  reporterName 조회
         String reporterName = userRepository.findById(r.getReporterId())
             .map(u -> u.getName())
             .orElse("(알 수 없음)");
 
-        //  AdminReportDetailDto.fromEntity(...)가 (r, eventName, reporterName) 받는 버전이어야 함
         return AdminReportDetailDto.fromEntity(r, eventName, reporterName);
     }
 
@@ -104,10 +104,10 @@ public class AdminReportServiceImpl implements AdminReportService {
         EventEntity event = eventRepository.findById(r.getEventId())
             .orElseThrow(() -> new EntityNotFoundException("존재하지 않는 이벤트입니다."));
 
-        // 1) 신고자에게 승인 알림(6)
+        // 신고자에게 승인 알림(6)
         notificationService.create(r.getReporterId(), NotiTypeId.REPORT_ACCEPT, r.getEventId(), null);
 
-        // 2) 주최자에게 신고 승인 알림(5)
+        // 주최자에게 신고 승인 알림(5)
         if (event.getHost() != null && event.getHost().getUserId() != null) {
             long hostUserId = event.getHost().getUserId();
             if (hostUserId != r.getReporterId()) {
@@ -115,13 +115,13 @@ public class AdminReportServiceImpl implements AdminReportService {
             }
         }
 
-        // 3) 이벤트 비활성화(DELETED)
+        // 이벤트 비활성화
         event.changeStatusToDeleted();
 
-        //  4) 삭제하지 말고 상태만 승인으로 변경
+        //  삭제하지 말고 승인 상태로만 변경
         r.setReportResult(ReportResult.APPROVED);
 
-        //  5) 같은 이벤트의 다른 미처리 신고는 자동 반려로 내려 정렬 하단으로
+        //  같은 이벤트 다른 미처리 신고들은 반려로 내려서 아래 정렬
         reportRepository.rejectOtherPendings(r.getEventId(), r.getReportId());
     }
 
@@ -138,7 +138,7 @@ public class AdminReportServiceImpl implements AdminReportService {
         // 신고자에게 반려 알림(7)
         notificationService.create(r.getReporterId(), NotiTypeId.REPORT_REJECT, r.getEventId(), null);
 
-        //  삭제하지 말고 상태만 반려로 변경
+        //  삭제하지 말고 반려로만 변경
         r.setReportResult(ReportResult.REJECTED);
     }
 
@@ -146,5 +146,11 @@ public class AdminReportServiceImpl implements AdminReportService {
         return eventRepository.findById(eventId)
             .map(EventEntity::getTitle)
             .orElse("(삭제/미존재 이벤트)");
+    }
+
+    private String getEventThumbSafe(Long eventId) {
+        return eventRepository.findById(eventId)
+            .map(EventEntity::getThumbnail) // EventEntity.thumbnail
+            .orElse(null);
     }
 }
