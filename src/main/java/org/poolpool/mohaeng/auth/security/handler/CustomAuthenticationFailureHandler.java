@@ -24,25 +24,25 @@ public class CustomAuthenticationFailureHandler implements AuthenticationFailure
     	String errorMessage = "소셜 로그인에 실패했습니다.";
 
         if (exception instanceof OAuth2AuthenticationException oauthEx) {
-            errorMessage = oauthEx.getError().getDescription();
+            String description = oauthEx.getError().getDescription();
+            if (description != null && !description.isBlank()) {
+                errorMessage = description;
+            }
         }
-        
+
         System.out.println("errorMessage : " + errorMessage);
-        
-        Cookie cookie = new Cookie(
-                "OAUTH_ERROR", 
-                URLEncoder.encode(errorMessage, StandardCharsets.UTF_8)
+
+        String safeMessage = URLEncoder.encode(
+                errorMessage,
+                StandardCharsets.UTF_8
         );
 
+        Cookie cookie = new Cookie("OAUTH_ERROR", safeMessage);
         cookie.setPath("/");
-        cookie.setMaxAge(10); // 10초 유지
-        cookie.setHttpOnly(false); // JS에서 읽기 위한 설정
+        cookie.setMaxAge(10);
+        cookie.setHttpOnly(false);
         response.addCookie(cookie);
 
-//        String redirectUrl = "http://localhost:3000/oauthFailure?message=" 
-//        		+ java.net.URLEncoder.encode(errorMessage, java.nio.charset.StandardCharsets.UTF_8);
-//
-//        response.sendRedirect(redirectUrl);
         response.sendRedirect("http://localhost:3000/oauthFailure");
     }
 }
