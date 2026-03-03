@@ -60,7 +60,6 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
             response.addCookie(socialCookie);
 
             response.sendRedirect("http://localhost:3000/socialSignup");
-            return;
         }
 
         // 기존 회원: 기존 토큰 발급 로직
