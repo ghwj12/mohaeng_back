@@ -74,11 +74,27 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     @Override
     @Transactional(readOnly = true)
     public List<EventParticipationDto> getParticipationList(Long userId) {
-        return participationRepository.findParticipationsByUserId(userId)
-                .stream()
-                .map(EventParticipationDto::fromEntity)
+        List<EventParticipationEntity> list = participationRepository.findParticipationsByUserId(userId);
+
+        return list.stream()
+                .filter(p -> !"참여삭제".equals(p.getPctStatus()))  // 참여삭제는 제외
+                .map(p -> {
+                    EventEntity event = null;
+                    try { event = eventRepository.findById(p.getEventId()).orElse(null); }
+                    catch (Exception ignored) {}
+
+                    Integer payAmount = null;
+                    try {
+                        payAmount = paymentRepository.findByPctId(p.getPctId())
+                                .map(pay -> pay.getAmountTotal())
+                                .orElse(null);
+                    } catch (Exception ignored) {}
+
+                    return EventParticipationDto.fromEntityWithEvent(p, event, payAmount);
+                })
                 .toList();
     }
+
 
     // ──────────────────────────────────────
     //  일반 행사 참여
@@ -238,9 +254,10 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     private int calcRefundRate(LocalDate startDate) {
         if (startDate == null) return 0;
         long days = ChronoUnit.DAYS.between(LocalDate.now(), startDate);
-        if (days >= 7) return 100;
-        if (days >= 3) return 50;
-        if (days >= 1) return 30;
+        if (days >= 30) return 100;
+        if (days >= 15) return 80;
+        if (days >= 7)  return 50;
+        if (days >= 3)  return 30;
         return 0;
     }
 
@@ -261,11 +278,6 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         if (cancelAmount <= 0) return;
 
         paymentService.cancelPayment(p.getPaymentKey(), cancelAmount, reason);
-
-        // 프로젝트 요구사항상 부분 환불도 '취소'로 정리
-        p.setPaymentStatus("CANCELED");
-        p.setCanceledAt(LocalDateTime.now());
-        paymentRepository.save(p);
     }
 
     /**
