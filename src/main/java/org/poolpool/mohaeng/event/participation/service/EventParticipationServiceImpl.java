@@ -1,282 +1,269 @@
 package org.poolpool.mohaeng.event.participation.service;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
-import org.poolpool.mohaeng.common.config.UploadProperties;
-import org.poolpool.mohaeng.common.util.FileNameChange;
-import org.poolpool.mohaeng.event.host.repository.FileRepository;
-import org.poolpool.mohaeng.event.list.dto.EventDetailDto;
+import org.poolpool.mohaeng.event.host.repository.HostBoothRepository;
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
-import org.poolpool.mohaeng.event.list.entity.FileEntity;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
-import org.poolpool.mohaeng.event.list.service.EventService;
 import org.poolpool.mohaeng.event.participation.dto.EventParticipationDto;
-import org.poolpool.mohaeng.event.participation.dto.ParticipationBoothDto;
-import org.poolpool.mohaeng.event.participation.dto.ParticipationBoothFacilityDto;
 import org.poolpool.mohaeng.event.participation.entity.EventParticipationEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothFacilityEntity;
 import org.poolpool.mohaeng.event.participation.repository.EventParticipationRepository;
-import org.poolpool.mohaeng.auth.security.principal.CustomUserPrincipal;
-import org.poolpool.mohaeng.notification.service.NotificationService;   //  추가
-import org.poolpool.mohaeng.notification.type.NotiTypeId;            //  추가
+import org.poolpool.mohaeng.payment.entity.PaymentEntity;
+import org.poolpool.mohaeng.payment.repository.PaymentRepository;
+import org.poolpool.mohaeng.payment.service.PaymentService;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class EventParticipationServiceImpl implements EventParticipationService {
 
-    private final EventParticipationRepository repo;
-    private final FileRepository fileRepository;
-    private final UploadProperties uploadProperties;
+    private final EventParticipationRepository participationRepository;
+    private final PaymentRepository paymentRepository;
+    private final PaymentService paymentService;
     private final EventRepository eventRepository;
-    private final EventService eventService;
+    private final HostBoothRepository hostBoothRepository;
 
-    private final NotificationService notificationService; //  추가
+    // ══════════════════════════════════════
+    //   마이페이지: 내 행사 참여 목록 (MypageEventController 호출)
+    // ══════════════════════════════════════
 
-    private Long getCurrentUserId() {
-        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-
-        if (principal instanceof CustomUserPrincipal cup) {
-            return Long.parseLong(cup.getUserId());
-        }
-        if (principal instanceof UserDetails ud) {
-            return Long.parseLong(ud.getUsername());
-        }
-        if (principal instanceof String s) {
-            return Long.parseLong(s);
-        }
-
-        throw new IllegalStateException("인증 정보를 찾을 수 없습니다. principal=" + principal);
-    }
-
-    // =========================
-    // 행사 참여(신청)
-    // =========================
     @Override
     @Transactional(readOnly = true)
     public List<EventParticipationDto> getParticipationList(Long userId) {
-        return repo.findParticipationByUserId(userId)
+        return participationRepository.findParticipationsByUserId(userId)
                 .stream()
                 .map(EventParticipationDto::fromEntity)
                 .toList();
     }
 
-    @Override
-    @Transactional
-    public Long submitParticipation(EventParticipationDto dto) {
-        Long userId = getCurrentUserId();
-        dto.setUserId(userId);
+    // ══════════════════════════════════════
+    //   일반 행사 참여 신청
+    // ══════════════════════════════════════
 
-        if (repo.existsActiveParticipation(userId, dto.getEventId())) {
+    @Override
+    public Long submitParticipation(Long userId, Long eventId) {
+        if (participationRepository.existsActiveParticipation(userId, eventId)) {
             throw new IllegalStateException("이미 신청한 행사입니다.");
         }
 
-        EventEntity event = eventRepository.findById(dto.getEventId())
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 행사입니다."));
+        EventEntity event = findEvent(eventId);
 
-        EventParticipationEntity e = dto.toEntity();
+        boolean isPaid = event.getPrice() != null && event.getPrice() > 0;
+        String initialStatus = isPaid ? "결제대기" : "참여확정";
 
-        boolean isFree = (event.getPrice() == null || event.getPrice() == 0);
-        e.setPctStatus(isFree ? "결제완료" : "결제대기");
+        EventParticipationEntity pct = new EventParticipationEntity();
+        pct.setEventId(eventId);
+        pct.setUserId(userId);
+        pct.setPctStatus(initialStatus);
 
-        EventParticipationEntity saved = repo.saveParticipation(e);
-        return saved.getPctId();
+        participationRepository.saveParticipation(pct);
+        log.info("[행사 참여 신청] userId={}, eventId={}, status={}", userId, eventId, initialStatus);
+        return pct.getPctId();
     }
+
+    // ══════════════════════════════════════
+    //   일반 행사 참여 취소 + 환불 (문제 7)
+    // ══════════════════════════════════════
 
     @Override
-    @Transactional(readOnly = true)
-    public EventDetailDto getEventDetail(Long eventId) {
-        return eventService.getEventDetail(eventId, false);
+    public void cancelParticipation(Long pctId) {
+        EventParticipationEntity pct = participationRepository.findParticipationById(pctId)
+                .orElseThrow(() -> new IllegalArgumentException("참여 신청 정보를 찾을 수 없습니다."));
+
+        if (!Set.of("임시저장", "신청", "결제대기", "결제완료", "참여확정").contains(pct.getPctStatus())) {
+            throw new IllegalStateException("현재 상태(" + pct.getPctStatus() + ")에서는 취소할 수 없습니다.");
+        }
+
+        EventEntity event = findEvent(pct.getEventId());
+        int refundRate = calcRefundRate(event.getStartDate());
+
+        Optional<PaymentEntity> paymentOpt = paymentRepository.findByPctId(pctId);
+        refundIfPaid(paymentOpt, refundRate, "참가자 취소");
+
+        pct.setPctStatus("취소");
+        participationRepository.saveParticipation(pct);
+        log.info("[행사 참여 취소] pctId={}, refundRate={}%", pctId, refundRate);
     }
+
+    // ══════════════════════════════════════
+    //   부스 취소 + 환불 + 재고 복원
+    // ══════════════════════════════════════
+
+    @Override
+    public void cancelBoothParticipation(Long pctBoothId) {
+        ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId)
+                .orElseThrow(() -> new IllegalArgumentException("부스 신청 정보를 찾을 수 없습니다."));
+
+        if (Set.of("승인", "반려").contains(booth.getStatus())) {
+            throw new IllegalStateException("승인 또는 반려된 부스는 취소할 수 없습니다.");
+        }
+
+        Long eventId = getEventIdFromHostBooth(booth.getHostBoothId());
+        int refundRate = calcRefundRate(findEvent(eventId).getStartDate());
+
+        Optional<PaymentEntity> paymentOpt = paymentRepository.findByPctBoothId(pctBoothId);
+        refundIfPaid(paymentOpt, refundRate, "참가자 부스 취소");
+        restoreInventory(pctBoothId, booth.getHostBoothId());
+
+        booth.setStatus("취소");
+        participationRepository.saveBooth(booth);
+        log.info("[부스 취소] pctBoothId={}, refundRate={}%", pctBoothId, refundRate);
+    }
+
+    // ══════════════════════════════════════
+    //   부스 승인
+    // ══════════════════════════════════════
+
+    @Override
+    public void approveBooth(Long pctBoothId) {
+        ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId)
+                .orElseThrow(() -> new IllegalArgumentException("부스 신청 정보를 찾을 수 없습니다."));
+
+        if (!Set.of("신청", "결제완료").contains(booth.getStatus())) {
+            throw new IllegalStateException("신청/결제완료 상태에서만 승인 가능합니다.");
+        }
+
+        booth.setStatus("승인");
+        booth.setApprovedDate(java.time.LocalDateTime.now());
+        participationRepository.saveBooth(booth);
+        log.info("[부스 승인] pctBoothId={}", pctBoothId);
+    }
+
+    // ══════════════════════════════════════
+    //   부스 반려 - 100% 환불 + 재고 복원 (문제 1)
+    // ══════════════════════════════════════
+
+    @Override
+    public void rejectBooth(Long pctBoothId) {
+        ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId)
+                .orElseThrow(() -> new IllegalArgumentException("부스 신청 정보를 찾을 수 없습니다."));
+
+        if (!Set.of("신청", "결제완료").contains(booth.getStatus())) {
+            throw new IllegalStateException("신청/결제완료 상태에서만 반려 가능합니다.");
+        }
+
+        Optional<PaymentEntity> paymentOpt = paymentRepository.findByPctBoothId(pctBoothId);
+        refundIfPaid(paymentOpt, 100, "주최자 반려");
+        restoreInventory(pctBoothId, booth.getHostBoothId());
+
+        booth.setStatus("반려");
+        participationRepository.saveBooth(booth);
+        log.info("[부스 반려] pctBoothId={} → 100% 환불 + 재고 복원 완료", pctBoothId);
+    }
+
+    // ══════════════════════════════════════
+    //   중복 신청 여부 (EventParticipationCheckController 호출)
+    // ══════════════════════════════════════
 
     @Override
     @Transactional(readOnly = true)
     public boolean hasActiveParticipation(Long eventId) {
         Long userId = getCurrentUserId();
-        return repo.existsActiveParticipation(userId, eventId);
+        if (userId == null) return false;
+        return participationRepository.existsActiveParticipation(userId, eventId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public boolean hasActiveBooth(Long eventId) {
         Long userId = getCurrentUserId();
-        return repo.existsActiveBooth(userId, eventId);
+        if (userId == null) return false;
+        return participationRepository.existsActiveBoothParticipation(userId, eventId);
     }
 
+    // ══════════════════════════════════════
+    //   미사용
+    // ══════════════════════════════════════
+
     @Override
-    @Transactional
-    public void cancelParticipation(Long pctId) {
-        EventParticipationEntity e = repo.findParticipationById(pctId)
-                .orElseThrow(() -> new IllegalArgumentException("참여 신청 없음"));
-        e.setPctStatus("취소");
-        repo.saveParticipation(e);
+    public Long submitBoothParticipation(Long userId, Long eventId, Object dto) {
+        throw new UnsupportedOperationException("컨트롤러에서 직접 처리");
     }
 
-    @Override
-    @Transactional
-    public void deleteParticipation(Long pctId) {
-        deleteParticipation(pctId, getCurrentUserId());
+    // ══════════════════════════════════════
+    //   공통 유틸
+    // ══════════════════════════════════════
+
+    private int calcRefundRate(LocalDate eventStartDate) {
+        if (eventStartDate == null) return 0;
+        long daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), eventStartDate);
+        if (daysLeft >= 30) return 100;
+        if (daysLeft >= 15) return 80;
+        if (daysLeft >= 7)  return 50;
+        if (daysLeft >= 3)  return 30;
+        return 0;
     }
 
-    @Override
-    @Transactional
-    public void deleteParticipation(Long pctId, Long userId) {
-        EventParticipationEntity e = repo.findParticipationById(pctId)
-                .orElseThrow(() -> new IllegalArgumentException("참여 신청 없음"));
+    private void refundIfPaid(Optional<PaymentEntity> paymentOpt, int rate, String reason) {
+        paymentOpt.ifPresent(payment -> {
+            if (!"APPROVED".equals(payment.getPaymentStatus())) return;
+            if (payment.getPaymentKey() == null) return;
+            int cancelAmount = payment.getAmountTotal() * rate / 100;
+            if (cancelAmount <= 0) {
+                log.info("[환불 생략] rate={}%, amount=0", rate);
+                return;
+            }
+            paymentService.cancelPayment(payment.getPaymentKey(), cancelAmount, reason);
+            log.info("[환불 완료] paymentKey={}, cancelAmount={}원 ({}%), reason={}",
+                    payment.getPaymentKey(), cancelAmount, rate, reason);
+        });
+    }
 
-        if (e.getUserId() == null || !e.getUserId().equals(userId)) {
-            throw new IllegalStateException("본인 참여내역만 삭제할 수 있습니다.");
+    private void restoreInventory(Long pctBoothId, Long hostBoothId) {
+        if (hostBoothId != null) {
+            participationRepository.increaseBoothRemainCount(hostBoothId);
+            log.info("[재고 복원] hostBoothId={} remainCount+1", hostBoothId);
         }
 
-        e.setPctStatus("참여삭제");
-        repo.saveParticipation(e);
-    }
+        List<ParticipationBoothFacilityEntity> facilities =
+                participationRepository.findFacilitiesByPctBoothId(pctBoothId);
 
-    // =========================
-    // 부스 참여 신청
-    // =========================
-    @Override
-    @Transactional(readOnly = true)
-    public List<ParticipationBoothDto> getParticipationBoothList(Long userId) {
-        return repo.findBoothByUserId(userId)
-                .stream()
-                .map(ParticipationBoothDto::fromEntity)
-                .toList();
-    }
-
-    @Override
-    @Transactional
-    public void cancelBoothParticipation(Long pctBoothId) {
-        ParticipationBoothEntity booth = repo.findBoothById(pctBoothId)
-                .orElseThrow(() -> new IllegalArgumentException("부스 신청 없음"));
-
-        String st = booth.getStatus();
-        if (st != null && (st.equals("승인") || st.equals("반려"))) {
-            throw new IllegalStateException("이미 처리된 신청은 취소할 수 없습니다.");
-        }
-        booth.setStatus("취소");
-        booth.setUpdatedAt(LocalDateTime.now());
-        repo.saveBooth(booth);
-    }
-
-    /**
-     * 부스 참가 신청 제출
-     * - 무료(boothPrice=0): 바로 '결제완료'
-     * - 유료: '신청' → 결제 승인 후 PaymentService에서 '결제완료'로 변경
-     */
-    @Override
-    @Transactional
-    public Long submitBoothApply(Long eventId, ParticipationBoothDto dto, List<MultipartFile> files) {
-        validateEventId(eventId, dto.getHostBoothId());
-
-        Long userId = getCurrentUserId();
-
-        if (repo.existsActiveBooth(userId, eventId)) {
-            throw new IllegalStateException("이미 신청한 부스입니다.");
-        }
-
-        ParticipationBoothEntity booth = dto.toEntity();
-        booth.setUserId(userId);
-
-        boolean isFree = (dto.getBoothPrice() == null || dto.getBoothPrice() == 0)
-                      && (dto.getTotalPrice() == null || dto.getTotalPrice() == 0);
-        booth.setStatus(isFree ? "결제완료" : "신청");
-
-        ParticipationBoothEntity savedBooth = repo.saveBooth(booth);
-
-        saveFacilities(savedBooth.getPctBoothId(), dto.getFacilities());
-        saveFiles(savedBooth, files, eventId);
-
-        repo.decreaseBoothRemainCount(dto.getHostBoothId());
-
-        if (dto.getFacilities() != null) {
-            for (ParticipationBoothFacilityDto faci : dto.getFacilities()) {
-                repo.decreaseFacilityRemainCount(faci.getHostBoothFaciId(), faci.getFaciCount());
+        for (ParticipationBoothFacilityEntity faci : facilities) {
+            if (faci.getHostBoothFaciId() != null
+                    && faci.getFaciCount() != null
+                    && faci.getFaciCount() > 0) {
+                participationRepository.increaseFacilityRemainCount(
+                        faci.getHostBoothFaciId(), faci.getFaciCount());
+                log.info("[시설 재고 복원] faciId={}, count+{}",
+                        faci.getHostBoothFaciId(), faci.getFaciCount());
             }
         }
-
-        //  부스 신청 알림(8): 주최자에게
-        EventEntity event = eventRepository.findById(eventId)
-                .orElseThrow(() -> new IllegalArgumentException("행사 없음"));
-        Long hostId = (event.getHost() != null) ? event.getHost().getUserId() : null;
-
-        if (hostId != null && !hostId.equals(userId)) {
-            notificationService.create(hostId, NotiTypeId.BOOTH_RECEIVER, eventId, null);
-        }
-
-        return savedBooth.getPctBoothId();
     }
 
-    // =========================
-    // 내부 유틸
-    // =========================
-    private void validateEventId(Long eventId, Long hostBoothId) {
-        Long realEventId = repo.findEventIdByHostBoothId(hostBoothId)
-                .orElseThrow(() -> new IllegalArgumentException("HOST_BOOTH 없음"));
-        if (!realEventId.equals(eventId)) {
-            throw new IllegalArgumentException("hostBoothId가 eventId에 속하지 않습니다.");
-        }
+    private Long getEventIdFromHostBooth(Long hostBoothId) {
+        return hostBoothRepository.findById(hostBoothId)
+                .map(hb -> hb.getEventId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "호스트 부스 정보를 찾을 수 없습니다. hostBoothId=" + hostBoothId));
     }
 
-    private void saveFiles(ParticipationBoothEntity pctBooth, List<MultipartFile> files, Long eventId) {
-        if (files == null || files.isEmpty()) return;
+    private EventEntity findEvent(Long eventId) {
+        return eventRepository.findById(eventId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "행사 정보를 찾을 수 없습니다. eventId=" + eventId));
+    }
 
-        Path pboothDir = uploadProperties.pboothDir();
-
+    private Long getCurrentUserId() {
         try {
-            if (!Files.exists(pboothDir)) {
-                Files.createDirectories(pboothDir);
-            }
-
-            for (int i = 0; i < files.size(); i++) {
-                MultipartFile file = files.get(i);
-                if (file.isEmpty()) continue;
-
-                String originalName = file.getOriginalFilename();
-                String renameName = FileNameChange.change(originalName, FileNameChange.RenameStrategy.DATETIME_UUID);
-                Path filePath = pboothDir.resolve(renameName);
-
-                EventEntity event = eventRepository.findById(eventId)
-                        .orElseThrow(() -> new IllegalArgumentException("행사 없음"));
-
-                file.transferTo(filePath.toFile());
-
-                FileEntity fileEntity = FileEntity.builder()
-                        .pctBooth(pctBooth)
-                        .event(event)
-                        .fileType("P_BOOTH")
-                        .originalFileName(originalName)
-                        .renameFileName(renameName)
-                        .sortOrder(i + 1)
-                        .createdAt(LocalDateTime.now())
-                        .build();
-
-                fileRepository.save(fileEntity);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("참여 부스 첨부파일 업로드 중 오류가 발생했습니다.", e);
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth == null || !auth.isAuthenticated()) return null;
+            return Long.parseLong(auth.getName());
+        } catch (Exception e) {
+            return null;
         }
-    }
-
-    private void saveFacilities(Long pctBoothId, List<ParticipationBoothFacilityDto> facilities) {
-        repo.deleteFacilitiesByPctBoothId(pctBoothId);
-        if (facilities == null || facilities.isEmpty()) return;
-
-        List<ParticipationBoothFacilityEntity> entities = facilities.stream()
-                .map(f -> f.toEntity(pctBoothId))
-                .toList();
-
-        repo.saveFacilities(entities);
     }
 }

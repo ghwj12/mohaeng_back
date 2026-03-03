@@ -27,17 +27,18 @@ public class MypageBoothRepository {
      * - 마이페이지에서 필요한 event 요약정보까지 같이 반환
      */
     public List<BoothMypageResponse> findMyBooths(Long userId) {
-        // ⚠️ `event`는 예약어 충돌 가능성이 있어서 백틱 사용
+        // 💡 1. VIEW_STATUS 대신 순수 STATUS 반환
+        // 💡 2. WHERE 조건에 '취소'된 건 아예 제외
         String sql = "\n" +
                 "SELECT \n" +
                 "  pb.PCT_BOOTH_ID, pb.HOST_BOOTH_ID, pb.BOOTH_TITLE, pb.BOOTH_TOPIC, pb.BOOTH_COUNT, pb.TOTAL_PRICE,\n" +
-                "  CASE WHEN pb.STATUS IN ('신청','결제완료') THEN '대기' ELSE pb.STATUS END AS VIEW_STATUS,\n" +
+                "  pb.STATUS AS VIEW_STATUS,\n" + 
                 "  pb.CREATED_AT,\n" +
                 "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE\n" +
                 "FROM PARTICIPATION_BOOTH pb\n" +
                 "JOIN HOST_BOOTH hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
-                "WHERE pb.USER_ID = ?\n" +
+                "WHERE pb.USER_ID = ? AND pb.STATUS != '취소'\n" +
                 "ORDER BY pb.CREATED_AT DESC";
 
         @SuppressWarnings("unchecked")
@@ -73,16 +74,18 @@ public class MypageBoothRepository {
      * - 상태: 승인/반려면 '완료', 그 외는 '대기'
      */
     public List<BoothMypageResponse> findReceivedBooths(Long hostUserId) {
+        // 💡 1. VIEW_STATUS 둔갑술 제거 (순수 STATUS 반환)
+        // 💡 2. WHERE 조건에 '취소'된 건 아예 제외
         String sql = "\n" +
                 "SELECT \n" +
                 "  pb.PCT_BOOTH_ID, pb.HOST_BOOTH_ID, pb.BOOTH_TITLE, pb.BOOTH_TOPIC, pb.BOOTH_COUNT, pb.TOTAL_PRICE,\n" +
-                "  CASE WHEN pb.STATUS IN ('승인','반려') THEN '완료' ELSE '대기' END AS VIEW_STATUS,\n" +
+                "  pb.STATUS AS VIEW_STATUS,\n" +
                 "  pb.CREATED_AT,\n" +
                 "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE\n" +
                 "FROM PARTICIPATION_BOOTH pb\n" +
                 "JOIN HOST_BOOTH hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
-                "WHERE e.HOST_ID = ?\n" +
+                "WHERE e.HOST_ID = ? AND pb.STATUS != '취소'\n" +
                 "ORDER BY pb.CREATED_AT DESC";
 
         @SuppressWarnings("unchecked")
