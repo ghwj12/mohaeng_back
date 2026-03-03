@@ -23,7 +23,7 @@ public class MypageBoothRepository {
 
     /**
      * ✅ 부스 신청/관리 내역(유저 기준)
-     * - PARTICIPATION_BOOTH -> HOST_BOOTH -> event 조인
+     * - participation_booth -> host_booth -> event 조인
      * - 마이페이지에서 필요한 event 요약정보까지 같이 반환
      */
     public List<BoothMypageResponse> findMyBooths(Long userId) {
@@ -34,8 +34,8 @@ public class MypageBoothRepository {
                 "  CASE WHEN pb.STATUS IN ('신청','결제완료') THEN '대기' ELSE pb.STATUS END AS VIEW_STATUS,\n" +
                 "  pb.CREATED_AT,\n" +
                 "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE\n" +
-                "FROM PARTICIPATION_BOOTH pb\n" +
-                "JOIN HOST_BOOTH hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
+                "FROM participation_booth pb\n" +
+                "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
                 "WHERE pb.USER_ID = ?\n" +
                 "ORDER BY pb.CREATED_AT DESC";
@@ -79,8 +79,8 @@ public class MypageBoothRepository {
                 "  CASE WHEN pb.STATUS IN ('승인','반려') THEN '완료' ELSE '대기' END AS VIEW_STATUS,\n" +
                 "  pb.CREATED_AT,\n" +
                 "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE\n" +
-                "FROM PARTICIPATION_BOOTH pb\n" +
-                "JOIN HOST_BOOTH hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
+                "FROM participation_booth pb\n" +
+                "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
                 "WHERE e.HOST_ID = ?\n" +
                 "ORDER BY pb.CREATED_AT DESC";
@@ -122,8 +122,8 @@ public class MypageBoothRepository {
                 "  pb.MAIN_ITEMS, pb.DESCRIPTION, pb.BOOTH_COUNT, pb.BOOTH_PRICE, pb.FACILITY_PRICE, pb.TOTAL_PRICE,\n" +
                 "  pb.STATUS, pb.CREATED_AT, pb.APPROVED_DATE,\n" +
                 "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE\n" +
-                "FROM PARTICIPATION_BOOTH pb\n" +
-                "JOIN HOST_BOOTH hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
+                "FROM participation_booth pb\n" +
+                "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
                 "WHERE pb.PCT_BOOTH_ID = ?\n" +
                 "  AND (pb.USER_ID = ? OR e.HOST_ID = ?)";
@@ -216,8 +216,8 @@ public class MypageBoothRepository {
      */
     public int updateBoothStatusAsHost(Long hostUserId, Long pctBoothId, String status) {
         String sql = "\n" +
-                "UPDATE PARTICIPATION_BOOTH pb\n" +
-                "JOIN HOST_BOOTH hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
+                "UPDATE participation_booth pb\n" +
+                "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
                 "SET pb.STATUS = ?, pb.APPROVED_DATE = NOW(), pb.UPDATED_AT = NOW()\n" +
                 "WHERE pb.PCT_BOOTH_ID = ? AND e.HOST_ID = ? AND pb.STATUS IN ('신청','결제완료')";
@@ -237,8 +237,8 @@ public class MypageBoothRepository {
      */
     public int updateBoothStatusAsHostRelaxed(Long hostUserId, Long pctBoothId, String status) {
         String sql = "\n" +
-                "UPDATE PARTICIPATION_BOOTH pb\n" +
-                "JOIN HOST_BOOTH hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
+                "UPDATE participation_booth pb\n" +
+                "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
                 "SET pb.STATUS = ?, pb.APPROVED_DATE = NOW(), pb.UPDATED_AT = NOW()\n" +
                 "WHERE pb.PCT_BOOTH_ID = ? AND e.HOST_ID = ?\n" +

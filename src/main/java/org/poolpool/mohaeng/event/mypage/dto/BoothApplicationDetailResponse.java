@@ -39,6 +39,12 @@ public class BoothApplicationDetailResponse {
     private LocalDate startDate;
     private LocalDate endDate;
 
+    // applicant(user)
+    private String applicantName;
+    private String applicantEmail;
+    private String applicantPhone;
+    private String applicantBusinessNum;
+
     // files
     private List<BoothApplicationFileResponse> files;
 }
