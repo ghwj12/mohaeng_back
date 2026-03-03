@@ -1,108 +1,263 @@
 package org.poolpool.mohaeng.event.participation.controller;
+import org.poolpool.mohaeng.event.list.entity.EventEntity;
 
-import lombok.RequiredArgsConstructor;
-import org.poolpool.mohaeng.auth.security.principal.CustomUserPrincipal;
-import org.poolpool.mohaeng.event.participation.dto.EventParticipationDto;
-import org.poolpool.mohaeng.event.participation.dto.ParticipationBoothDto;
-import org.poolpool.mohaeng.event.participation.service.EventParticipationService;
-import org.springframework.http.MediaType; // 💡 임포트 추가
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile; // 💡 임포트 추가
-
+import java.io.File;
+import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
+import org.poolpool.mohaeng.event.list.entity.FileEntity;
+import org.poolpool.mohaeng.event.participation.dto.BoothApplyRequestDto;
+import org.poolpool.mohaeng.event.participation.dto.BoothListResponseDto;
+import org.poolpool.mohaeng.event.participation.entity.EventParticipationEntity;
+import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothEntity;
+import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothFacilityEntity;
+import org.poolpool.mohaeng.event.participation.repository.EventParticipationRepository;
+import org.poolpool.mohaeng.event.participation.service.EventParticipationService;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.transaction.Transactional;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/api/eventParticipation")
+@RequiredArgsConstructor
 public class EventParticipationController {
 
-    private final EventParticipationService service;
+    private final EventParticipationService participationService;
+    private final EventParticipationRepository participationRepository;
+    private final ObjectMapper objectMapper;
 
-    // =========================
-    // Participation (행사 참여)
-    // =========================
+    @PersistenceContext
+    private EntityManager em;
 
-    // 참여 행사 목록 조회 (유저 기준)
-    @GetMapping("/getParticipationList")
-    public ResponseEntity<List<EventParticipationDto>> getParticipationList(
-            @AuthenticationPrincipal CustomUserPrincipal principal) {
+    @Value("${upload.path.pbooth:C:/upload_files/pbooth}")
+    private String pboothUploadPath;
 
-        Long userId = principal == null ? null : Long.valueOf(principal.getUsername());
-        return ResponseEntity.ok(service.getParticipationList(userId));
-    }
+    // ══════════════════════════════════════
+    //   부스 신청 제출
+    //   POST /api/eventParticipation/submitBoothApply?eventId={eventId}
+    // ══════════════════════════════════════
 
-    // 행사 신청 제출(최종)
-    @PostMapping("/submitParticipation")
-    public ResponseEntity<Long> submitParticipation(
+    @PostMapping("/submitBoothApply")
+    @Transactional
+    public ResponseEntity<?> submitBoothApply(
             @RequestParam("eventId") Long eventId,
-            @RequestBody EventParticipationDto dto) {
+            @RequestParam("data") String dataJson, // 프론트에서 보낸 'data' (JSON String)
+            @RequestParam(value = "files", required = false) List<MultipartFile> files) { // 첨부파일 직접 받기
 
-        dto.setEventId(eventId);
-        return ResponseEntity.ok(service.submitParticipation(dto));
-    }
+        log.info("[부스 신청] eventId={}, dataJson={}", eventId, dataJson);
 
-    // 참여 취소
-    @DeleteMapping("/cancelParticipation")
-    public ResponseEntity<Void> cancelParticipation(
-            @RequestParam("pctId") Long pctId) {
-
-        service.cancelParticipation(pctId);
-        return ResponseEntity.ok().build();
-    }
-
-    // ✅ 참여내역 삭제(소프트삭제: 상태를 '참여삭제'로 변경)
-    @PutMapping("/deleteParticipation")
-    public ResponseEntity<Void> deleteParticipation(
-            @RequestParam("pctId") Long pctId) {
-
-        service.deleteParticipation(pctId);
-        return ResponseEntity.ok().build();
-    }
-    
-    // 이벤트 정보 불러오기
-    @GetMapping("/info/{eventId}")
-    public ResponseEntity<?> getEventInfo(@PathVariable("eventId") Long eventId) {
-        // 500 에러 방지를 위해 데이터가 없는 경우를 체크해주면 좋습니다.
-        Object detail = service.getEventDetail(eventId);
-        if (detail == null) {
-            return ResponseEntity.status(404).body("행사 정보를 찾을 수 없습니다.");
+        if (dataJson == null || dataJson.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "data 파라미터가 없습니다."));
         }
-        return ResponseEntity.ok(detail);
+
+        // ── 1) JSON 파싱 ──────────────────────────────
+        BoothApplyRequestDto dto;
+        try {
+            dto = objectMapper.readValue(dataJson, BoothApplyRequestDto.class);
+        } catch (Exception e) {
+            log.error("[부스 신청] JSON 파싱 실패: {}", dataJson, e);
+            return ResponseEntity.badRequest().body(Map.of("message", "요청 데이터 형식이 올바르지 않습니다: " + e.getMessage()));
+        }
+
+        // ── 2) ParticipationBoothEntity 저장 ─────────
+        ParticipationBoothEntity booth = new ParticipationBoothEntity();
+        booth.setHostBoothId(dto.getHostBoothId());
+        booth.setUserId(getCurrentUserId());
+        booth.setHomepageUrl(dto.getHomepageUrl());
+        booth.setBoothTitle(dto.getBoothTitle());
+        booth.setBoothTopic(dto.getBoothTopic());
+        booth.setMainItems(dto.getMainItems());
+        booth.setDescription(dto.getDescription() != null ? dto.getDescription() : "");
+        booth.setBoothCount(dto.getBoothCount() != null ? dto.getBoothCount() : 1);
+        booth.setBoothPrice(dto.getBoothPrice() != null ? dto.getBoothPrice() : 0);
+        booth.setFacilityPrice(dto.getFacilityPrice() != null ? dto.getFacilityPrice() : 0);
+        booth.setTotalPrice(dto.getTotalPrice() != null ? dto.getTotalPrice() : 0);
+        booth.setStatus(booth.getTotalPrice() > 0 ? "결제대기" : "신청");
+
+        em.persist(booth);
+        em.flush();
+
+        Long pctBoothId = booth.getPctBoothId();
+        log.info("[부스 신청] pctBoothId={} 생성됨", pctBoothId);
+
+        // ── 3) 부대시설 저장 + 재고 차감 ──────────────
+        if (dto.getFacilities() != null) {
+            for (BoothApplyRequestDto.FacilityItem fi : dto.getFacilities()) {
+                if (fi.getHostBoothFaciId() == null) continue;
+
+                ParticipationBoothFacilityEntity faci = new ParticipationBoothFacilityEntity();
+                faci.setHostBoothFaciId(fi.getHostBoothFaciId());
+                faci.setPctBoothId(pctBoothId);
+                faci.setFaciCount(fi.getFaciCount() != null ? fi.getFaciCount() : 1);
+                faci.setFaciPrice(fi.getFaciPrice() != null ? fi.getFaciPrice() : 0);
+                em.persist(faci);
+
+                em.createQuery(
+                    "UPDATE HostFacilityEntity h " +
+                    "SET h.remainCount = h.remainCount - :cnt " +
+                    "WHERE h.hostBoothfaciId = :id AND h.remainCount >= :cnt")
+                    .setParameter("id", fi.getHostBoothFaciId())
+                    .setParameter("cnt", faci.getFaciCount())
+                    .executeUpdate();
+            }
+        }
+
+        // ── 4) 부스 재고 차감 ─────────────────────────
+        em.createQuery(
+            "UPDATE HostBoothEntity h " +
+            "SET h.remainCount = h.remainCount - 1 " +
+            "WHERE h.boothId = :id AND h.remainCount > 0")
+            .setParameter("id", dto.getHostBoothId())
+            .executeUpdate();
+
+        // ── 5) 첨부파일 저장 ──────────────────────────
+        // 파라미터로 직접 받은 files 리스트 사용
+        if (files != null && !files.isEmpty()) {
+            File uploadDir = new File(pboothUploadPath);
+            if (!uploadDir.exists()) uploadDir.mkdirs();
+
+            String datePart = LocalDateTime.now()
+                    .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+
+            // 💡 EntityManager를 이용해 eventId만 가진 참조 객체를 생성합니다.
+            EventEntity eventRef = em.getReference(EventEntity.class, eventId);
+
+            for (MultipartFile file : files) {
+                if (file.isEmpty()) continue;
+
+                String originalName = file.getOriginalFilename();
+                String ext = "";
+                if (originalName != null && originalName.contains(".")) {
+                    ext = originalName.substring(originalName.lastIndexOf("."));
+                }
+                String saveName = datePart + "_"
+                        + UUID.randomUUID().toString().replace("-", "") + ext;
+
+                try {
+                    file.transferTo(new File(uploadDir, saveName));
+
+                    // 💡 빌더 수정 부분
+                    FileEntity fileEntity = FileEntity.builder()
+                            .pctBooth(booth)
+                            .event(eventRef) // 👈 .eventId() 대신 .event() 객체를 넣습니다!
+                            .fileType("PBOOTH")
+                            .originalFileName(originalName)
+                            .renameFileName(saveName)
+                            .sortOrder(0)
+                            .createdAt(LocalDateTime.now())
+                            .build();
+
+                    em.persist(fileEntity);
+                    log.info("[부스파일 저장] {} → {}", originalName, saveName);
+
+                } catch (IOException e) {
+                    log.error("[부스파일 저장 실패] {}", originalName, e);
+                }
+            }
+        }
+
+        log.info("[부스 신청 완료] pctBoothId={}, userId={}, eventId={}",
+                pctBoothId, getCurrentUserId(), eventId);
+        return ResponseEntity.ok(Map.of("pctBoothId", pctBoothId));
     }
 
+    // ══════════════════════════════════════
+    //   일반 행사 참여 취소
+    // ══════════════════════════════════════
 
-    // =========================
-    // Booth Participation (부스 신청/참여)
-    // =========================
-
-    // 유저 기준 부스 참여 목록 조회
-    @GetMapping("/getParticipationBoothList")
-    public ResponseEntity<List<ParticipationBoothDto>> getParticipationBoothList(
-            @AuthenticationPrincipal CustomUserPrincipal principal) {
-
-        Long userId = principal == null ? null : Long.valueOf(principal.getUsername());
-        return ResponseEntity.ok(service.getParticipationBoothList(userId));
+    @DeleteMapping("/cancelParticipation")
+    public ResponseEntity<?> cancelParticipation(@RequestParam Long pctId) {
+        participationService.cancelParticipation(pctId);
+        return ResponseEntity.ok(Map.of("message", "참여 취소가 완료되었습니다."));
     }
 
+    // ══════════════════════════════════════
+    //   부스 취소
+    // ══════════════════════════════════════
 
-    // 💡 [수정됨] 행사 부스 신청 제출(최종) - 파일 업로드 가능하게 변경
-    @PostMapping(value = "/submitBoothApply", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<Long> submitBoothApply(
-            @RequestParam("eventId") Long eventId,
-            @RequestPart("data") ParticipationBoothDto dto, // JSON 폼 데이터
-            @RequestPart(value = "files", required = false) List<MultipartFile> files) { // 파일 데이터
-
-        return ResponseEntity.ok(service.submitBoothApply(eventId, dto, files));
-    }
-
-    // 행사 부스 참여 취소
     @DeleteMapping("/cancelBoothParticipation")
-    public ResponseEntity<Void> cancelBoothParticipation(
-            @RequestParam("pctBoothId") Long pctBoothId) {
+    public ResponseEntity<?> cancelBoothParticipation(@RequestParam("pctBoothId") Long pctBoothId) {
+        participationService.cancelBoothParticipation(pctBoothId);
+        return ResponseEntity.ok(Map.of("message", "부스 취소가 완료되었습니다."));
+    }
 
-        service.cancelBoothParticipation(pctBoothId);
-        return ResponseEntity.ok().build();
+    // ══════════════════════════════════════
+    //   주최자 부스 관리
+    // ══════════════════════════════════════
+
+    @GetMapping("/boothList/{eventId}")
+    public ResponseEntity<?> getBoothList(@PathVariable Long eventId) {
+        List<ParticipationBoothEntity> list =
+                participationRepository.findBoothsByEventId(eventId);
+        List<BoothListResponseDto> response = list.stream()
+                .map(BoothListResponseDto::fromEntity)
+                .toList();
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/approveBooth")
+    public ResponseEntity<?> approveBooth(@RequestParam("pctBoothId") Long pctBoothId) {
+        participationService.approveBooth(pctBoothId);
+        return ResponseEntity.ok(Map.of("message", "부스 신청이 승인되었습니다."));
+    }
+
+    @PutMapping("/rejectBooth")
+    public ResponseEntity<?> rejectBooth(@RequestParam("pctBoothId") Long pctBoothId) {
+        participationService.rejectBooth(pctBoothId);
+        return ResponseEntity.ok(Map.of("message", "부스 신청이 반려되었습니다. 결제금액이 전액 환불됩니다."));
+    }
+
+    // ══════════════════════════════════════
+    //   마이페이지
+    // ══════════════════════════════════════
+
+    @GetMapping("/myParticipations")
+    public ResponseEntity<?> myParticipations(@RequestParam Long userId) {
+        List<EventParticipationEntity> list =
+                participationRepository.findParticipationsByUserId(userId);
+        return ResponseEntity.ok(list);
+    }
+
+    @GetMapping("/myBoothParticipations")
+    public ResponseEntity<?> myBoothParticipations(@RequestParam Long userId) {
+        List<ParticipationBoothEntity> list =
+                participationRepository.findBoothsByUserId(userId);
+        return ResponseEntity.ok(list);
+    }
+
+    // ══════════════════════════════════════
+    //   유틸
+    // ══════════════════════════════════════
+
+    private Long getCurrentUserId() {
+        try {
+            var auth = org.springframework.security.core.context.SecurityContextHolder
+                    .getContext().getAuthentication();
+            if (auth == null || !auth.isAuthenticated()) return null;
+            return Long.parseLong(auth.getName());
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

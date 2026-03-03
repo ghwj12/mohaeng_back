@@ -2,33 +2,24 @@ package org.poolpool.mohaeng.event.participation.service;
 
 import java.util.List;
 
-import org.poolpool.mohaeng.event.list.dto.EventDetailDto;
 import org.poolpool.mohaeng.event.participation.dto.EventParticipationDto;
-import org.poolpool.mohaeng.event.participation.dto.ParticipationBoothDto;
-import org.springframework.web.multipart.MultipartFile;
 
 public interface EventParticipationService {
 
-    List<EventParticipationDto> getParticipationList(Long userId);
-
-    Long submitParticipation(EventParticipationDto dto);
-
+    // ─── 일반 행사 참여 ───
+    Long submitParticipation(Long userId, Long eventId);
     void cancelParticipation(Long pctId);
 
-    void deleteParticipation(Long pctId);
-
-    void deleteParticipation(Long pctId, Long userId);
-
-    List<ParticipationBoothDto> getParticipationBoothList(Long userId);
-
-    Long submitBoothApply(Long eventId, ParticipationBoothDto dto, List<MultipartFile> files);
-
+    // ─── 부스 신청 ───
+    Long submitBoothParticipation(Long userId, Long eventId, Object dto);
     void cancelBoothParticipation(Long pctBoothId);
+    void approveBooth(Long pctBoothId);
+    void rejectBooth(Long pctBoothId);
 
-    EventDetailDto getEventDetail(Long eventId);
+    // ─── 마이페이지 (MypageEventController 호출) ───
+    List<EventParticipationDto> getParticipationList(Long userId);
 
-    //  Issue 6: 중복 신청 여부 체크
+    // ─── 중복 신청 여부 확인 (EventParticipationCheckController 호출) ───
     boolean hasActiveParticipation(Long eventId);
-
     boolean hasActiveBooth(Long eventId);
 }

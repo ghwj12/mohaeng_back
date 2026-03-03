@@ -7,7 +7,6 @@ import org.poolpool.mohaeng.event.participation.entity.EventParticipationEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothFacilityEntity;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -18,147 +17,146 @@ public class EventParticipationRepository {
     @PersistenceContext
     private EntityManager em;
 
-    // =========================
-    // EVENT_PARTICIPATION
-    // =========================
+    // ──────────────────────────────────────
+    //   EventParticipationEntity (일반 참가)
+    // ──────────────────────────────────────
 
     public Optional<EventParticipationEntity> findParticipationById(Long pctId) {
         return Optional.ofNullable(em.find(EventParticipationEntity.class, pctId));
     }
 
-    public List<EventParticipationEntity> findParticipationByUserId(Long userId) {
+    public void saveParticipation(EventParticipationEntity pct) {
+        if (pct.getPctId() == null) em.persist(pct);
+        else em.merge(pct);
+    }
+
+    /**
+     * ✅ 문제 4: 취소 상태 제외한 활성 신청 여부 확인 (결제대기도 이미 신청됨으로 처리)
+     */
+    public boolean existsActiveParticipation(Long userId, Long eventId) {
+        Long count = em.createQuery(
+                "SELECT COUNT(p) FROM EventParticipationEntity p " +
+                "WHERE p.userId = :userId AND p.eventId = :eventId " +
+                "AND p.pctStatus NOT IN ('취소')", Long.class)
+                .setParameter("userId", userId)
+                .setParameter("eventId", eventId)
+                .getSingleResult();
+        return count != null && count > 0;
+    }
+
+    /**
+     * 유저의 행사 참여 내역 전체 조회 (마이페이지용)
+     */
+    public List<EventParticipationEntity> findParticipationsByUserId(Long userId) {
         return em.createQuery(
-                "select p from EventParticipationEntity p " +
-                "where p.userId = :userId " +
-                "and p.pctStatus not in ('취소','참여삭제') " +
-                "order by p.pctDate desc",
+                "SELECT p FROM EventParticipationEntity p WHERE p.userId = :userId " +
+                "ORDER BY p.pctId DESC",
                 EventParticipationEntity.class)
                 .setParameter("userId", userId)
                 .getResultList();
     }
 
-    // ✅ Issue 6: 행사 참여 중복 체크
-    // EventParticipationEntity에 eventId, userId, pctStatus 직접 컬럼으로 있음 → JPQL 사용
-    public boolean existsActiveParticipation(Long userId, Long eventId) {
-        Long count = em.createQuery(
-                "select count(p) from EventParticipationEntity p " +
-                "where p.userId = :userId " +
-                "and p.eventId = :eventId " +
-                "and p.pctStatus in ('결제완료', '결제대기', '참여확정')",
-                Long.class)
-                .setParameter("userId", userId)
-                .setParameter("eventId", eventId)
-                .getSingleResult();
-        return count > 0;
-    }
-
-    public EventParticipationEntity saveParticipation(EventParticipationEntity entity) {
-        if (entity.getPctId() == null) {
-            em.persist(entity);
-            return entity;
-        }
-        return em.merge(entity);
-    }
-
-    // =========================
-    // PARTICIPATION_BOOTH
-    // =========================
+    // ──────────────────────────────────────
+    //   ParticipationBoothEntity (부스 신청)
+    // ──────────────────────────────────────
 
     public Optional<ParticipationBoothEntity> findBoothById(Long pctBoothId) {
         return Optional.ofNullable(em.find(ParticipationBoothEntity.class, pctBoothId));
     }
 
-    public List<ParticipationBoothEntity> findBoothByUserId(Long userId) {
+    public void saveBooth(ParticipationBoothEntity booth) {
+        if (booth.getPctBoothId() == null) em.persist(booth);
+        else em.merge(booth);
+    }
+
+    /**
+     * 특정 행사의 모든 부스 신청 목록 (주최자용)
+     * ✅ 문제 2: ParticipationBoothEntity에 eventId 컬럼이 없으므로
+     *           host_booth 테이블 조인으로 event_id 필터
+     */
+    @SuppressWarnings("unchecked")
+    public List<ParticipationBoothEntity> findBoothsByEventId(Long eventId) {
+        return em.createNativeQuery(
+                "SELECT pb.* FROM participation_booth pb " +
+                "JOIN host_booth hb ON pb.host_booth_id = hb.booth_id " +
+                "WHERE hb.event_id = :eventId " +
+                "ORDER BY pb.pct_booth_id ASC",
+                ParticipationBoothEntity.class)
+                .setParameter("eventId", eventId)
+                .getResultList();
+    }
+
+    /**
+     * 유저의 부스 신청 목록 조회 (마이페이지용)
+     */
+    public List<ParticipationBoothEntity> findBoothsByUserId(Long userId) {
         return em.createQuery(
-                "select b from ParticipationBoothEntity b " +
-                "where b.userId = :userId " +
-                "order by b.createdAt desc",
+                "SELECT b FROM ParticipationBoothEntity b WHERE b.userId = :userId " +
+                "ORDER BY b.pctBoothId DESC",
                 ParticipationBoothEntity.class)
                 .setParameter("userId", userId)
                 .getResultList();
     }
 
-    // ✅ Issue 6: 부스 중복 체크
-    // ParticipationBoothEntity에 eventId 없음 → HOST_BOOTH JOIN으로 확인
-    // 상태 컬럼명: STATUS (pctBoothStatus 아님)
-    public boolean existsActiveBooth(Long userId, Long eventId) {
-        Number count = (Number) em.createNativeQuery(
-                "SELECT COUNT(*) FROM PARTICIPATION_BOOTH pb " +
-                "JOIN HOST_BOOTH hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID " +
-                "WHERE pb.USER_ID = :userId " +
-                "AND hb.EVENT_ID = :eventId " +
-                "AND pb.STATUS NOT IN ('취소', '부스삭제', '반려')")
+    /**
+     * 특정 행사에 유저가 이미 부스 신청했는지 확인 (취소/반려 제외)
+     */
+    public boolean existsActiveBoothParticipation(Long userId, Long eventId) {
+        Long count = ((Number) em.createNativeQuery(
+                "SELECT COUNT(*) FROM participation_booth pb " +
+                "JOIN host_booth hb ON pb.host_booth_id = hb.booth_id " +
+                "WHERE pb.user_id = :userId AND hb.event_id = :eventId " +
+                "AND pb.status NOT IN ('취소', '반려')")
                 .setParameter("userId", userId)
                 .setParameter("eventId", eventId)
-                .getSingleResult();
-        return count.longValue() > 0;
+                .getSingleResult()).longValue();
+        return count > 0;
     }
 
-    public ParticipationBoothEntity saveBooth(ParticipationBoothEntity entity) {
-        if (entity.getPctBoothId() == null) {
-            em.persist(entity);
-            return entity;
-        }
-        return em.merge(entity);
-    }
+    // ──────────────────────────────────────
+    //   ParticipationBoothFacilityEntity
+    // ──────────────────────────────────────
 
-    @Transactional
-    public void decreaseBoothRemainCount(Long hostBoothId) {
-        em.createQuery(
-            "UPDATE HostBoothEntity h SET h.remainCount = h.remainCount - 1 " +
-            "WHERE h.boothId = :boothId AND h.remainCount > 0")
-          .setParameter("boothId", hostBoothId)
-          .executeUpdate();
-    }
-
-    // =========================
-    // PARTICIPATION_BOOTH_FACILITY
-    // =========================
-
+    /**
+     * 부스 신청에 포함된 부대시설 목록 (취소/반려 시 재고 복원용)
+     */
     public List<ParticipationBoothFacilityEntity> findFacilitiesByPctBoothId(Long pctBoothId) {
         return em.createQuery(
-                "select f from ParticipationBoothFacilityEntity f " +
-                "where f.pctBoothId = :pctBoothId",
+                "SELECT f FROM ParticipationBoothFacilityEntity f " +
+                "WHERE f.pctBoothId = :pctBoothId",
                 ParticipationBoothFacilityEntity.class)
                 .setParameter("pctBoothId", pctBoothId)
                 .getResultList();
     }
 
-    @Transactional
-    public void decreaseFacilityRemainCount(Long hostBoothFaciId, int count) {
-        em.createQuery(
-            "UPDATE HostFacilityEntity h SET h.remainCount = h.remainCount - :count " +
-            "WHERE h.hostBoothfaciId = :faciId AND h.remainCount >= :count")
-          .setParameter("faciId", hostBoothFaciId)
-          .setParameter("count", count)
-          .executeUpdate();
-    }
+    // ──────────────────────────────────────
+    //   재고 복원 (문제 1 - 부스 반려/취소 시)
+    // ──────────────────────────────────────
 
-    // =========================
-    // HOST_BOOTH → EVENT 검증용
-    // =========================
-    public Optional<Long> findEventIdByHostBoothId(Long hostBoothId) {
-        Object value = em.createNativeQuery(
-                "SELECT EVENT_ID FROM HOST_BOOTH WHERE BOOTH_ID = ?")
-                .setParameter(1, hostBoothId)
-                .getResultStream()
-                .findFirst()
-                .orElse(null);
-        if (value == null) return Optional.empty();
-        return Optional.of(((Number) value).longValue());
-    }
-
-    public void deleteFacilitiesByPctBoothId(Long pctBoothId) {
+    /**
+     * 부스 잔여 수량 +1
+     * HostBoothEntity의 실제 PK 필드명이 다르면 맞춰서 수정 필요
+     */
+    public void increaseBoothRemainCount(Long hostBoothId) {
         em.createQuery(
-                "delete from ParticipationBoothFacilityEntity f where f.pctBoothId = :pctBoothId")
-                .setParameter("pctBoothId", pctBoothId)
+                "UPDATE HostBoothEntity h " +
+                "SET h.remainCount = h.remainCount + 1 " +
+                "WHERE h.boothId = :boothId")
+                .setParameter("boothId", hostBoothId)
                 .executeUpdate();
     }
 
-    public void saveFacilities(List<ParticipationBoothFacilityEntity> facilities) {
-        for (ParticipationBoothFacilityEntity f : facilities) {
-            if (f.getPctBoothFaciId() == null) em.persist(f);
-            else em.merge(f);
-        }
+    /**
+     * 부대시설 잔여 수량 복원
+     * HostFacilityEntity의 실제 PK 필드명이 다르면 맞춰서 수정 필요
+     */
+    public void increaseFacilityRemainCount(Long hostBoothFaciId, Integer count) {
+        em.createQuery(
+                "UPDATE HostFacilityEntity h " +
+                "SET h.remainCount = h.remainCount + :count " +
+                "WHERE h.hostBoothfaciId = :faciId")
+                .setParameter("faciId", hostBoothFaciId)
+                .setParameter("count", count)
+                .executeUpdate();
     }
 }
