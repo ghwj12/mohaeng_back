@@ -32,18 +32,23 @@ public class PaymentEntity {
 
     @Column(name = "PAY_TYPE", nullable = false, length = 20)
     @Builder.Default
-    private String payType = "BOOTH"; // PARTICIPANT or BOOTH
+    private String payType = "BOOTH";
 
     @Column(name = "PAY_METHOD", nullable = false, length = 30)
-    private String payMethod; // 토스에서 반환하는 결제 수단
+    private String payMethod;
 
     @Column(name = "AMOUNT_TOTAL", nullable = false)
     @Builder.Default
     private Integer amountTotal = 0;
 
+    // ✅ 환불된 금액 (부분 환불 시 사용, 전액 환불이면 amountTotal과 동일)
+    @Column(name = "CANCELED_AMOUNT")
+    @Builder.Default
+    private Integer canceledAmount = 0;
+
     @Column(name = "PAYMENT_STATUS", nullable = false, length = 30)
     @Builder.Default
-    private String paymentStatus = "READY"; // READY, APPROVED, CANCELED
+    private String paymentStatus = "READY"; // READY, APPROVED, PARTIAL_CANCEL, CANCELLED
 
     @Column(name = "APPROVED_AT")
     private LocalDateTime approvedAt;
@@ -51,7 +56,6 @@ public class PaymentEntity {
     @Column(name = "CANCELED_AT")
     private LocalDateTime canceledAt;
 
-    // 토스 paymentKey (승인 후 저장)
     @Column(name = "PAYMENT_NO", length = 200)
     private String paymentKey;
 }

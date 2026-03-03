@@ -55,26 +55,26 @@ public interface AdminEventStatsRepository extends JpaRepository<EventEntity, Lo
     List<AdminEventStatsDto.CategoryStatsResponse> countByCategory();
 
     // ── 4. 결제완료 참여자 수 ──
-    @Query(value = "SELECT COUNT(*) FROM EVENT_PARTICIPATION WHERE EVENT_ID = :eventId AND PCT_STATUS IN ('결제완료', '참여확정')",
+    @Query(value = "SELECT COUNT(*) FROM event_participation WHERE EVENT_ID = :eventId AND PCT_STATUS IN ('결제완료', '참여확정')",
            nativeQuery = true)
     Long countParticipantsByEventId(@Param("eventId") Long eventId);
 
     // ── 5. 성별 통계 ──
-    @Query(value = "SELECT PCT_GENDER, COUNT(*) as cnt FROM EVENT_PARTICIPATION " +
+    @Query(value = "SELECT PCT_GENDER, COUNT(*) as cnt FROM event_participation " +
                    "WHERE EVENT_ID = :eventId AND PCT_STATUS IN ('결제완료', '참여확정') AND PCT_GENDER IS NOT NULL " +
                    "GROUP BY PCT_GENDER",
            nativeQuery = true)
     List<Object[]> countGenderByEventId(@Param("eventId") Long eventId);
 
     // ── 6. 연령대 통계 ──
-    @Query(value = "SELECT PCT_AGEGROUP, COUNT(*) as cnt FROM EVENT_PARTICIPATION " +
+    @Query(value = "SELECT PCT_AGEGROUP, COUNT(*) as cnt FROM event_participation " +
                    "WHERE EVENT_ID = :eventId AND PCT_STATUS IN ('결제완료', '참여확정') AND PCT_AGEGROUP IS NOT NULL " +
                    "GROUP BY PCT_AGEGROUP ORDER BY PCT_AGEGROUP",
            nativeQuery = true)
     List<Object[]> countAgeGroupByEventId(@Param("eventId") Long eventId);
 
     // ── 7. 부스 수익 합산 ──
-    @Query(value = "SELECT COALESCE(SUM((TOTAL_COUNT - REMAIN_COUNT) * BOOTH_PRICE), 0) FROM HOST_BOOTH WHERE EVENT_ID = :eventId",
+    @Query(value = "SELECT COALESCE(SUM((TOTAL_COUNT - REMAIN_COUNT) * BOOTH_PRICE), 0) FROM host_booth WHERE EVENT_ID = :eventId",
            nativeQuery = true)
     Long sumBoothRevenueByEventId(@Param("eventId") Long eventId);
 
