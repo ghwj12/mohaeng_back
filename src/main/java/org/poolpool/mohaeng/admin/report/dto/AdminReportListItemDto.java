@@ -13,18 +13,22 @@ public class AdminReportListItemDto {
     private Long reportId;
     private Long eventId;
     private String eventName;
+
+    private String eventThumbnail; //  추가 (파일명 또는 URL)
+
     private String reasonCategory;
     private LocalDateTime createdAt;
     private String reportResult;
 
-    public static AdminReportListItemDto fromEntity(AdminReportFEntity r, String eventName) {
+    public static AdminReportListItemDto fromEntity(AdminReportFEntity r, String eventName, String eventThumbnail) {
         return AdminReportListItemDto.builder()
             .reportId(r.getReportId())
             .eventId(r.getEventId())
             .eventName(eventName)
+            .eventThumbnail(eventThumbnail)
             .reasonCategory(r.getReasonCategory())
             .createdAt(r.getCreatedAt())
-            .reportResult(r.getReportResult())
+            .reportResult(String.valueOf(r.getReportResult()))
             .build();
     }
 }

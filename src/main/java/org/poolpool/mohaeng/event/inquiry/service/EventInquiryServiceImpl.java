@@ -9,7 +9,8 @@ import org.poolpool.mohaeng.event.inquiry.entity.EventInquiryEntity;
 import org.poolpool.mohaeng.event.inquiry.repository.EventInquiryRepository;
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
-
+import org.poolpool.mohaeng.notification.service.NotificationService;   //  추가
+import org.poolpool.mohaeng.notification.type.NotiTypeId;            //  추가
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -24,6 +25,7 @@ public class EventInquiryServiceImpl implements EventInquiryService {
 
     private final EventInquiryRepository repo;
     private final EventRepository eventRepository;
+    private final NotificationService notificationService; //  추가
 
     @Override
     @Transactional(readOnly = true)
@@ -36,11 +38,23 @@ public class EventInquiryServiceImpl implements EventInquiryService {
     public Long createInquiry(Long currentUserId, Long eventId, EventInquiryDto dto) {
         if (currentUserId == null) throw new IllegalStateException("로그인이 필요합니다.");
 
+        //  행사 조회(주최자 알림을 위해)
+        EventEntity ev = eventRepository.findById(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("행사 없음"));
+
         dto.setUserId(currentUserId);
         dto.setEventId(eventId);
         if (dto.getStatus() == null) dto.setStatus("대기");
 
         EventInquiryEntity saved = repo.save(dto.toEntity());
+
+        //  (알림) 문의 등록 → 주최자에게 알림
+        Long hostId = (ev.getHost() != null) ? ev.getHost().getUserId() : null;
+        if (hostId != null && !hostId.equals(currentUserId)) {
+            // reportId는 event_report FK 때문에 절대 넣으면 안 됨 → null 고정
+            notificationService.create(hostId, NotiTypeId.INQUIRY_RECEIVER, eventId, null);
+        }
+
         return saved.getInqId();
     }
 
@@ -95,17 +109,26 @@ public class EventInquiryServiceImpl implements EventInquiryService {
 
         assertHostOfEvent(e.getEventId(), currentUserId);
 
+        //  "처음 답변"인지 체크(답변 수정 때 알림 중복 방지)
+        boolean wasEmpty = (e.getReplyContent() == null || e.getReplyContent().isBlank());
+
         e.setReplyContent(dto.getReplyContent());
         e.setReplyId(currentUserId);
         e.setReplyDate(LocalDateTime.now());
         e.setStatus("완료");
 
         repo.save(e);
+
+        //  (알림) 답변 등록(처음만) → 질문자에게 알림
+        if (wasEmpty && e.getUserId() != null) {
+            notificationService.create(e.getUserId(), NotiTypeId.INQUIRY_SENDER, e.getEventId(), null);
+        }
     }
 
     @Override
     @Transactional
     public void updateReply(Long currentUserId, Long inqId, EventInquiryDto dto) {
+        // 기존 구조 유지(알림은 createReply 내부에서 "처음 답변만" 보냄)
         createReply(currentUserId, inqId, dto);
     }
 

@@ -20,8 +20,8 @@ public class AdminReportController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<AdminReportListItemDto>>> list(
-            @RequestParam(name = "page", defaultValue = "0") int page,   // ✅ name 명시
-            @RequestParam(name = "size", defaultValue = "10") int size   // ✅ name 명시
+            @RequestParam(name = "page", defaultValue = "0") int page,   //  name 명시
+            @RequestParam(name = "size", defaultValue = "10") int size   //  name 명시
     ) {
         var data = reportService.getList(PageRequest.of(page, size));
         return ResponseEntity.ok(ApiResponse.ok("신고 목록 조회 성공", data));
@@ -29,7 +29,7 @@ public class AdminReportController {
 
     @GetMapping("/{reportId}")
     public ResponseEntity<ApiResponse<AdminReportDetailDto>> detail(
-            @PathVariable("reportId") long reportId   // ✅ value 명시
+            @PathVariable("reportId") long reportId   //  value 명시
     ) {
         var data = reportService.getDetail(reportId);
         return ResponseEntity.ok(ApiResponse.ok("신고 상세 조회 성공", data));
@@ -37,7 +37,7 @@ public class AdminReportController {
 
     @PutMapping("/{reportId}/approve")
     public ResponseEntity<ApiResponse<Void>> approve(
-            @PathVariable("reportId") long reportId   // ✅ value 명시
+            @PathVariable("reportId") long reportId   //  value 명시
     ) {
         reportService.approve(reportId);
         return ResponseEntity.ok(ApiResponse.ok("신고 승인 처리 성공", null));
@@ -45,7 +45,7 @@ public class AdminReportController {
 
     @PutMapping("/{reportId}/reject")
     public ResponseEntity<ApiResponse<Void>> reject(
-            @PathVariable("reportId") long reportId   // ✅ value 명시
+            @PathVariable("reportId") long reportId   //  value 명시
     ) {
         reportService.reject(reportId);
         return ResponseEntity.ok(ApiResponse.ok("신고 반려 처리 성공", null));

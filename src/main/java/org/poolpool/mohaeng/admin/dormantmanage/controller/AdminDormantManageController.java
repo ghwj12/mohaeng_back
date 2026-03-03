@@ -28,14 +28,14 @@ public class AdminDormantManageController {
 	
 	//휴면 계정 관리 조회
 	@GetMapping("/getDormantUsers")
-	public ResponseEntity<ApiResponse<Page<DormantUserDto>>> getDormantUsers(@PageableDefault(size = 10) Pageable pageable) {
+	public ResponseEntity<Page<DormantUserDto>> getDormantUsers(@PageableDefault(size = 10) Pageable pageable) {
 		//휴면 계정 관리 프로시저 호출
 		adminDormantManageService.callDormantUserProc();
 		
 		//휴면 계정 관리 조회
 		Page<DormantUserDto> dormantUsers = adminDormantManageService.findDormantUsers(pageable);
 
-		return ResponseEntity.status(201).body(ApiResponse.ok("회원 가입 성공", dormantUsers));
+		return ResponseEntity.ok(dormantUsers);
 	}
 	
 	//안내 메일 전송

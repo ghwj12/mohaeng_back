@@ -5,7 +5,6 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
-// 💡 [수정] 이 엔티티 임포트들이 누락되어 에러가 났던 것입니다.
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
 import org.poolpool.mohaeng.event.list.entity.FileEntity;
 
@@ -35,6 +34,7 @@ public class EventDto {
     private EventRegionDto region;
     private Integer price;
     private Integer capacity;
+    private Integer currentParticipantCount; // ✅ Issue 3: 현재 참여자 수
     private Integer views;
     private String eventStatus;
     private String lotNumberAdr;
@@ -52,13 +52,13 @@ public class EventDto {
     public static EventDto fromEntity(EventEntity entity) {
         if (entity == null) return null;
 
-        List<String> details = (entity.getEventFiles() == null) ? List.of() : 
+        List<String> details = (entity.getEventFiles() == null) ? List.of() :
             entity.getEventFiles().stream()
                 .filter(f -> "DETAIL".equals(f.getFileType()))
                 .map(FileEntity::getRenameFileName)
                 .toList();
 
-        List<String> booths = (entity.getEventFiles() == null) ? List.of() : 
+        List<String> booths = (entity.getEventFiles() == null) ? List.of() :
             entity.getEventFiles().stream()
                 .filter(f -> "BOOTH".equals(f.getFileType()))
                 .map(FileEntity::getRenameFileName)
@@ -81,6 +81,7 @@ public class EventDto {
                 .hasFacility(entity.getHasFacility())
                 .price(entity.getPrice())
                 .capacity(entity.getCapacity())
+                // currentParticipantCount는 서비스에서 별도 주입
                 .views(entity.getViews())
                 .eventStatus(entity.getEventStatus())
                 .lotNumberAdr(entity.getLotNumberAdr())
@@ -123,11 +124,10 @@ public class EventDto {
                 .zipCode(this.zipCode)
                 .topicIds(this.topicIds)
                 .hashtagIds(this.hashtagIds)
-                // 💡 이 부분에서 Entity 타입 인식을 위해 상단 임포트가 필수입니다.
                 .category(this.category != null ? this.category.toEntity() : null)
                 .region(this.region != null ? this.region.toEntity() : null)
                 .createdAt(this.createdAt != null ? this.createdAt : LocalDateTime.now())
-                .eventStatus(calculateEventStatus()) // 민수님의 로직 유지
+                .eventStatus(calculateEventStatus())
                 .views(this.views != null ? this.views : 0)
                 .build();
     }

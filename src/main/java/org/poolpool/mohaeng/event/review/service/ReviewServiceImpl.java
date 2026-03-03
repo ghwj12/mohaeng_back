@@ -1,10 +1,13 @@
 package org.poolpool.mohaeng.event.review.service;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Optional;
 
 import org.poolpool.mohaeng.common.api.PageResponse;
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
+import org.poolpool.mohaeng.event.participation.entity.EventParticipationEntity;
 import org.poolpool.mohaeng.event.review.dto.EventReviewTabItemDto;
 import org.poolpool.mohaeng.event.review.dto.MyPageReviewItemDto;
 import org.poolpool.mohaeng.event.review.dto.ReviewCreateRequestDto;
@@ -72,12 +75,42 @@ public class ReviewServiceImpl implements ReviewService {
         .map(EventReviewTabItemDto::fromEntity);
   }
 
+  /**
+   * ✅ 참여완료 기준(추천):
+   * 1) 참여 레코드 존재 + pctStatus = '결제완료'
+   * 2) 행사 종료(endDate/endTime 지남)
+   */
+  private boolean canWriteReview(long userId, long eventId) {
+    LocalDate today = LocalDate.now();
+    LocalTime now = LocalTime.now();
+
+    Long cnt = em.createQuery("""
+        select count(p)
+          from EventParticipationEntity p, EventEntity e
+         where p.userId = :userId
+           and p.eventId = :eventId
+           and e.eventId = :eventId
+           and p.pctStatus = '결제완료'
+           and (
+                e.endDate < :today
+                or (e.endDate = :today and (e.endTime is null or e.endTime <= :now))
+           )
+        """, Long.class)
+        .setParameter("userId", userId)
+        .setParameter("eventId", eventId)
+        .setParameter("today", today)
+        .setParameter("now", now)
+        .getSingleResult();
+
+    return cnt != null && cnt > 0;
+  }
+
   @Override
   @Transactional
   public long create(long userId, ReviewCreateRequestDto request) {
     Long eventId = request.getEventId();
 
-    //  1) 존재 검증: user / event 실제 존재 확인
+    // 1) 존재 검증
     if (em.find(UserEntity.class, userId) == null) {
       throw new EntityNotFoundException("존재하지 않는 사용자입니다.");
     }
@@ -85,14 +118,18 @@ public class ReviewServiceImpl implements ReviewService {
       throw new EntityNotFoundException("존재하지 않는 이벤트입니다.");
     }
 
-    //  2) 중복 작성 방지
+    // ✅ 참여완료(행사 종료 + 결제완료)만 리뷰 작성 가능
+    if (!canWriteReview(userId, eventId)) {
+      throw new IllegalStateException("참여완료한 행사만 리뷰를 작성할 수 있습니다.");
+    }
+
+    // 2) 중복 작성 방지
     if (reviewRepository.existsByUser_UserIdAndEvent_EventId(userId, eventId)) {
       throw new IllegalStateException("이미 해당 이벤트에 리뷰를 작성했습니다.");
     }
 
+    // 3) 저장
     ReviewEntity e = new ReviewEntity();
-
-    //  3) 검증 후에는 getReference로 FK만 연결(불필요한 조회 방지)
     e.setUser(em.getReference(UserEntity.class, userId));
     e.setEvent(em.getReference(EventEntity.class, eventId));
 
@@ -116,7 +153,7 @@ public class ReviewServiceImpl implements ReviewService {
     e.setRatingProgress(request.getRatingProgress());
     e.setRatingMood(request.getRatingMood());
     e.setContent(request.getContent());
-    return true; // dirty checking
+    return true;
   }
 
   @Override

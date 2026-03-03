@@ -21,7 +21,7 @@ public class EventStatusScheduler {
 
     // 매일 자정(0시 0분 0초)에 실행
     // 빠른 테스트를 원하시면 @Scheduled(fixedDelay = 60000) (1분마다) 로 바꿔서 해보세요!
-    @Scheduled(cron = "0 0 0 * * *")
+    @Scheduled(cron = "0 * * * * *")
     @Transactional
     public void updateAllEventStatuses() {
         log.info("=== 행사 상태 자동 업데이트 스케줄러 시작 ===");

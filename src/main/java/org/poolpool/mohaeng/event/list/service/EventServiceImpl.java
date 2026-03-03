@@ -21,6 +21,7 @@ import org.poolpool.mohaeng.event.list.entity.FileEntity;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,24 +37,25 @@ public class EventServiceImpl implements EventService {
     private final HostFacilityRepository hostFacilityRepository;
 
     @Override
-    @Transactional 
+    @Transactional
     public EventDetailDto getEventDetail(Long eventId, boolean shouldIncreaseView) {
         EventEntity event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new RuntimeException("존재하지 않는 행사입니다."));
 
-        // ✅ 삭제된 행사는 상세 조회 불가
         if ("DELETED".equals(event.getEventStatus()) || "행사삭제".equals(event.getEventStatus())) {
             throw new IllegalArgumentException("삭제된 행사입니다.");
         }
 
-
-        // ✅ 컨트롤러에서 넘겨준 '조회수 증가 여부'를 여기서 체크합니다!
         if (shouldIncreaseView) {
             Integer currentViews = (event.getViews() == null) ? 0 : event.getViews();
             event.setViews(currentViews + 1);
         }
-        
+
         EventDto eventDto = EventDto.fromEntity(event);
+
+        // 현재 참여자 수 주입 (결제대기 포함 — 자리 확보 목적)
+        Integer participantCount = eventRepository.countParticipantsByEventId(eventId);
+        eventDto.setCurrentParticipantCount(participantCount != null ? participantCount : 0);
 
         List<String> detailImages = new ArrayList<>();
         List<String> boothImages = new ArrayList<>();
@@ -80,83 +82,79 @@ public class EventServiceImpl implements EventService {
                 .hostName(event.getHost() != null ? event.getHost().getName() : "정보 없음")
                 .hostEmail(event.getHost() != null ? event.getHost().getEmail() : "정보 없음")
                 .hostPhone(event.getHost() != null ? event.getHost().getPhone() : "정보 없음")
+                .hostPhoto(event.getHost() != null ? event.getHost().getProfileImg() : null)
                 .booths(booths.stream().map(HostBoothDto::fromEntity).toList())
                 .facilities(facilities.stream().map(HostFacilityDto::fromEntity).toList())
                 .build();
     }
 
+    /**
+     * ✅ 문제 6: 행사 게시판 목록 — 오늘 날짜와 가까운 순으로 정렬
+     *
+     * 정렬 기준:
+     *   1) 진행 예정/진행중 행사 먼저 (start_date >= today)
+     *   2) 각 그룹 내에서 오늘과의 날짜 차이 오름차순 (ABS(DATEDIFF))
+     */
     @Override
     @Transactional(readOnly = true)
     public Page<EventDto> searchEvents(
             String keyword, Long regionId, LocalDate filterStart, LocalDate filterEnd,
             Integer categoryId, List<String> topicIds,
-            boolean checkFree, boolean hideClosed, Pageable pageable) {
+            boolean checkFree, boolean hideClosed, String eventStatus, Pageable pageable) {
 
-        // 지역 범위 계산 (기존 로직 그대로)
-        Long regionMin = null;
-        Long regionMax = null;
+        // ✅ 문제 6: Pageable의 Sort는 무시하고 날짜 근접 정렬 네이티브 쿼리 사용
+        // sort 정보를 제거한 Pageable (native query에서 ORDER BY 직접 지정)
+        Pageable unsortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
 
+        Long regionMin = null, regionMax = null;
         if (regionId != null) {
             String idStr = String.valueOf(regionId);
             String prefix = idStr.replaceAll("0+$", "");
-            if (prefix.length() < 2) {
-                prefix = idStr.substring(0, 2);
-            }
+            if (prefix.length() < 2) prefix = idStr.substring(0, 2);
             StringBuilder minSb = new StringBuilder(prefix);
             StringBuilder maxSb = new StringBuilder(prefix);
-            while (minSb.length() < 10) {
-                minSb.append("0");
-                maxSb.append("9");
-            }
+            while (minSb.length() < 10) { minSb.append("0"); maxSb.append("9"); }
             regionMin = Long.parseLong(minSb.toString());
             regionMax = Long.parseLong(maxSb.toString());
         }
 
-        // ✅ topicIds가 없으면(초기값 = 전체) → 기존 쿼리 그대로 실행
+        LocalDate today = LocalDate.now();
+        String statusParam = (eventStatus == null || eventStatus.isBlank()) ? null : eventStatus;
+
+        // 주제 필터가 없는 경우
         if (topicIds == null || topicIds.isEmpty()) {
-            Page<EventEntity> eventPage = eventRepository.searchEvents(
-                    keyword, regionId, regionMin, regionMax,
+            Page<EventEntity> eventPage = eventRepository.searchEventsOrderByDateProximity(
+                    emptyToNull(keyword), regionMin, regionMax,
                     filterStart, filterEnd, categoryId,
-                    checkFree, hideClosed, LocalDate.now(),
-                    null, pageable
-            );
+                    checkFree, hideClosed, today, statusParam,
+                    unsortedPageable);
             return eventPage.map(EventDto::fromEntity);
         }
 
-        // ✅ topicIds가 있으면 → 각 topic을 개별적으로 조회 후 OR 합집합 처리
-        // LinkedHashMap으로 eventId 기준 중복 제거하면서 순서 유지
+        // 주제 필터가 있는 경우: 주제별로 조회 후 병합 (순서 유지)
         Map<Long, EventEntity> mergedMap = new LinkedHashMap<>();
-
         for (String topicId : topicIds) {
             String trimmed = topicId.trim();
             if (trimmed.isEmpty()) continue;
 
-            // 각 topicId 하나씩 LIKE '%,1,%' 형태로 검색 (전체 페이지 크기로 조회)
-            // Pageable.unpaged() 대신 큰 사이즈로 조회 후 합산
-            Page<EventEntity> page = eventRepository.searchEvents(
-                    keyword, regionId, regionMin, regionMax,
+            Page<EventEntity> page = eventRepository.searchEventsWithTopicOrderByDate(
+                    emptyToNull(keyword), regionMin, regionMax,
                     filterStart, filterEnd, categoryId,
-                    checkFree, hideClosed, LocalDate.now(),
-                    trimmed, Pageable.unpaged()
-            );
+                    checkFree, hideClosed, today, trimmed, statusParam,
+                    Pageable.unpaged());
 
             for (EventEntity e : page.getContent()) {
                 mergedMap.put(e.getEventId(), e);
             }
         }
 
-        // 합집합 결과를 pageable 기준으로 수동 페이징
         List<EventEntity> allMatched = new ArrayList<>(mergedMap.values());
         int total = allMatched.size();
         int start = (int) pageable.getOffset();
         int end = Math.min(start + pageable.getPageSize(), total);
+        List<EventEntity> pageContent = (start >= total) ? new ArrayList<>() : allMatched.subList(start, end);
 
-        List<EventEntity> pageContent = (start >= total)
-                ? new ArrayList<>()
-                : allMatched.subList(start, end);
-
-        Page<EventEntity> resultPage = new PageImpl<>(pageContent, pageable, total);
-        return resultPage.map(EventDto::fromEntity);
+        return new PageImpl<>(pageContent, pageable, total).map(EventDto::fromEntity);
     }
 
     @Override
@@ -174,8 +172,11 @@ public class EventServiceImpl implements EventService {
         StringBuilder minSb = new StringBuilder(prefix);
         StringBuilder maxSb = new StringBuilder(prefix);
         while (minSb.length() < 10) { minSb.append("0"); maxSb.append("9"); }
-        Long regionMin = Long.parseLong(minSb.toString());
-        Long regionMax = Long.parseLong(maxSb.toString());
-        return eventRepository.countDailyEventsByRegion(regionMin, regionMax);
+        return eventRepository.countDailyEventsByRegion(
+                Long.parseLong(minSb.toString()), Long.parseLong(maxSb.toString()));
+    }
+
+    private String emptyToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 }

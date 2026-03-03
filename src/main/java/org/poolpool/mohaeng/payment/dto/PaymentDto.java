@@ -8,8 +8,6 @@ public class PaymentDto {
     // ─── 결제 준비 요청 ───
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
     public static class PrepareRequest {
-        private Long pctBoothId;  // 부스 참여 결제용
-        private Long pctId;       // ✅ 일반 행사 참여 결제용 (추가)
         private Long eventId;
         private Integer amount;
         private String orderName;
