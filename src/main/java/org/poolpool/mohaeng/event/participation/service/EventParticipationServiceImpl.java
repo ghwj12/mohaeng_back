@@ -6,7 +6,6 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.poolpool.mohaeng.auth.security.principal.CustomUserPrincipal;
 import org.poolpool.mohaeng.common.config.UploadProperties;
 import org.poolpool.mohaeng.common.util.FileNameChange;
 import org.poolpool.mohaeng.event.host.repository.FileRepository;
@@ -22,8 +21,9 @@ import org.poolpool.mohaeng.event.participation.entity.EventParticipationEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothFacilityEntity;
 import org.poolpool.mohaeng.event.participation.repository.EventParticipationRepository;
-import org.poolpool.mohaeng.notification.service.NotificationService;
-import org.poolpool.mohaeng.notification.type.NotiTypeId;
+import org.poolpool.mohaeng.auth.security.principal.CustomUserPrincipal;
+import org.poolpool.mohaeng.notification.service.NotificationService;   //  추가
+import org.poolpool.mohaeng.notification.type.NotiTypeId;            //  추가
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -42,14 +42,20 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     private final EventRepository eventRepository;
     private final EventService eventService;
 
-    private final NotificationService notificationService;
+    private final NotificationService notificationService; //  추가
 
     private Long getCurrentUserId() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
-        if (principal instanceof CustomUserPrincipal cup) return Long.parseLong(cup.getUserId());
-        if (principal instanceof UserDetails ud) return Long.parseLong(ud.getUsername());
-        if (principal instanceof String s) return Long.parseLong(s);
+        if (principal instanceof CustomUserPrincipal cup) {
+            return Long.parseLong(cup.getUserId());
+        }
+        if (principal instanceof UserDetails ud) {
+            return Long.parseLong(ud.getUsername());
+        }
+        if (principal instanceof String s) {
+            return Long.parseLong(s);
+        }
 
         throw new IllegalStateException("인증 정보를 찾을 수 없습니다. principal=" + principal);
     }
@@ -57,7 +63,6 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     // =========================
     // 행사 참여(신청)
     // =========================
-
     @Override
     @Transactional(readOnly = true)
     public List<EventParticipationDto> getParticipationList(Long userId) {
@@ -90,6 +95,26 @@ public class EventParticipationServiceImpl implements EventParticipationService 
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public EventDetailDto getEventDetail(Long eventId) {
+        return eventService.getEventDetail(eventId, false);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasActiveParticipation(Long eventId) {
+        Long userId = getCurrentUserId();
+        return repo.existsActiveParticipation(userId, eventId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasActiveBooth(Long eventId) {
+        Long userId = getCurrentUserId();
+        return repo.existsActiveBooth(userId, eventId);
+    }
+
+    @Override
     @Transactional
     public void cancelParticipation(Long pctId) {
         EventParticipationEntity e = repo.findParticipationById(pctId)
@@ -118,30 +143,9 @@ public class EventParticipationServiceImpl implements EventParticipationService 
         repo.saveParticipation(e);
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public EventDetailDto getEventDetail(Long eventId) {
-        return eventService.getEventDetail(eventId, false);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public boolean hasActiveParticipation(Long eventId) {
-        Long userId = getCurrentUserId();
-        return repo.existsActiveParticipation(userId, eventId);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public boolean hasActiveBooth(Long eventId) {
-        Long userId = getCurrentUserId();
-        return repo.existsActiveBooth(userId, eventId);
-    }
-
     // =========================
     // 부스 참여 신청
     // =========================
-
     @Override
     @Transactional(readOnly = true)
     public List<ParticipationBoothDto> getParticipationBoothList(Long userId) {
@@ -151,6 +155,26 @@ public class EventParticipationServiceImpl implements EventParticipationService 
                 .toList();
     }
 
+    @Override
+    @Transactional
+    public void cancelBoothParticipation(Long pctBoothId) {
+        ParticipationBoothEntity booth = repo.findBoothById(pctBoothId)
+                .orElseThrow(() -> new IllegalArgumentException("부스 신청 없음"));
+
+        String st = booth.getStatus();
+        if (st != null && (st.equals("승인") || st.equals("반려"))) {
+            throw new IllegalStateException("이미 처리된 신청은 취소할 수 없습니다.");
+        }
+        booth.setStatus("취소");
+        booth.setUpdatedAt(LocalDateTime.now());
+        repo.saveBooth(booth);
+    }
+
+    /**
+     * 부스 참가 신청 제출
+     * - 무료(boothPrice=0): 바로 '결제완료'
+     * - 유료: '신청' → 결제 승인 후 PaymentService에서 '결제완료'로 변경
+     */
     @Override
     @Transactional
     public Long submitBoothApply(Long eventId, ParticipationBoothDto dto, List<MultipartFile> files) {
@@ -182,45 +206,21 @@ public class EventParticipationServiceImpl implements EventParticipationService 
             }
         }
 
-        //  BOOTH_RECEIVER(8): 주최자에게 + status2에 pctBoothId 저장
+        //  부스 신청 알림(8): 주최자에게
         EventEntity event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new IllegalArgumentException("행사 없음"));
         Long hostId = (event.getHost() != null) ? event.getHost().getUserId() : null;
 
         if (hostId != null && !hostId.equals(userId)) {
-            notificationService.createWithStatus(
-                    hostId,
-                    NotiTypeId.BOOTH_RECEIVER,                // 8
-                    eventId,
-                    null,
-                    "미발송",                                  // status1: 발송상태
-                    String.valueOf(savedBooth.getPctBoothId()) //  status2: pctBoothId
-            );
+            notificationService.create(hostId, NotiTypeId.BOOTH_RECEIVER, eventId, null);
         }
 
         return savedBooth.getPctBoothId();
     }
 
-    @Override
-    @Transactional
-    public void cancelBoothParticipation(Long pctBoothId) {
-        ParticipationBoothEntity booth = repo.findBoothById(pctBoothId)
-                .orElseThrow(() -> new IllegalArgumentException("부스 신청 없음"));
-
-        String st = booth.getStatus();
-        if (st != null && (st.equals("승인") || st.equals("반려"))) {
-            throw new IllegalStateException("이미 처리된 신청은 취소할 수 없습니다.");
-        }
-
-        booth.setStatus("취소");
-        booth.setUpdatedAt(LocalDateTime.now());
-        repo.saveBooth(booth);
-    }
-
     // =========================
     // 내부 유틸
     // =========================
-
     private void validateEventId(Long eventId, Long hostBoothId) {
         Long realEventId = repo.findEventIdByHostBoothId(hostBoothId)
                 .orElseThrow(() -> new IllegalArgumentException("HOST_BOOTH 없음"));
@@ -239,16 +239,16 @@ public class EventParticipationServiceImpl implements EventParticipationService 
                 Files.createDirectories(pboothDir);
             }
 
-            EventEntity event = eventRepository.findById(eventId)
-                    .orElseThrow(() -> new IllegalArgumentException("행사 없음"));
-
             for (int i = 0; i < files.size(); i++) {
                 MultipartFile file = files.get(i);
-                if (file == null || file.isEmpty()) continue;
+                if (file.isEmpty()) continue;
 
                 String originalName = file.getOriginalFilename();
                 String renameName = FileNameChange.change(originalName, FileNameChange.RenameStrategy.DATETIME_UUID);
                 Path filePath = pboothDir.resolve(renameName);
+
+                EventEntity event = eventRepository.findById(eventId)
+                        .orElseThrow(() -> new IllegalArgumentException("행사 없음"));
 
                 file.transferTo(filePath.toFile());
 
