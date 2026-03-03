@@ -1,4 +1,5 @@
 package org.poolpool.mohaeng.event.participation.controller;
+
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
 
 import java.io.File;
@@ -17,6 +18,11 @@ import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothFacilityEntity;
 import org.poolpool.mohaeng.event.participation.repository.EventParticipationRepository;
 import org.poolpool.mohaeng.event.participation.service.EventParticipationService;
+
+//  부스 알림 추가
+import org.poolpool.mohaeng.notification.service.NotificationService;
+import org.poolpool.mohaeng.notification.type.NotiTypeId;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -47,6 +53,9 @@ public class EventParticipationController {
     private final EventParticipationRepository participationRepository;
     private final ObjectMapper objectMapper;
 
+    //  알림 서비스 주입
+    private final NotificationService notificationService;
+
     @PersistenceContext
     private EntityManager em;
 
@@ -57,7 +66,6 @@ public class EventParticipationController {
     //   부스 신청 제출
     //   POST /api/eventParticipation/submitBoothApply?eventId={eventId}
     // ══════════════════════════════════════
-
     @PostMapping("/submitBoothApply")
     @Transactional
     public ResponseEntity<?> submitBoothApply(
@@ -132,7 +140,6 @@ public class EventParticipationController {
             .executeUpdate();
 
         // ── 5) 첨부파일 저장 ──────────────────────────
-        // 파라미터로 직접 받은 files 리스트 사용
         if (files != null && !files.isEmpty()) {
             File uploadDir = new File(pboothUploadPath);
             if (!uploadDir.exists()) uploadDir.mkdirs();
@@ -140,7 +147,6 @@ public class EventParticipationController {
             String datePart = LocalDateTime.now()
                     .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
 
-            // 💡 EntityManager를 이용해 eventId만 가진 참조 객체를 생성합니다.
             EventEntity eventRef = em.getReference(EventEntity.class, eventId);
 
             for (MultipartFile file : files) {
@@ -157,11 +163,9 @@ public class EventParticipationController {
                 try {
                     file.transferTo(new File(uploadDir, saveName));
 
-                    // 💡 빌더 수정 부분
                     FileEntity fileEntity = FileEntity.builder()
                             .pctBooth(booth)
-                            .event(eventRef) // 👈 .eventId() 대신 .event() 객체를 넣습니다!
-                            // 마이페이지 조회 쿼와 타입을 통일
+                            .event(eventRef)
                             .fileType("P_BOOTH")
                             .originalFileName(originalName)
                             .renameFileName(saveName)
@@ -178,6 +182,22 @@ public class EventParticipationController {
             }
         }
 
+        //  6) 부스 신청 알림(8): 주최자에게
+        try {
+            EventEntity event = em.find(EventEntity.class, eventId);
+            Long hostId = (event != null && event.getHost() != null) ? event.getHost().getUserId() : null;
+            Long applicantId = booth.getUserId();
+
+            if (hostId != null && applicantId != null && !hostId.equals(applicantId)) {
+                notificationService.create(hostId, NotiTypeId.BOOTH_RECEIVER, eventId, null);
+                log.info("[BOOTH_NOTI] created type=8 hostId={} eventId={} pctBoothId={}", hostId, eventId, pctBoothId);
+            } else {
+                log.info("[BOOTH_NOTI] skipped type=8 hostId={} applicantId={} eventId={}", hostId, applicantId, eventId);
+            }
+        } catch (Exception e) {
+            log.error("[BOOTH_NOTI] failed type=8 eventId={} pctBoothId={}", eventId, pctBoothId, e);
+        }
+
         log.info("[부스 신청 완료] pctBoothId={}, userId={}, eventId={}",
                 pctBoothId, getCurrentUserId(), eventId);
         return ResponseEntity.ok(Map.of("pctBoothId", pctBoothId));
@@ -186,7 +206,6 @@ public class EventParticipationController {
     // ══════════════════════════════════════
     //   일반 행사 참여 취소
     // ══════════════════════════════════════
-
     @DeleteMapping("/cancelParticipation")
     public ResponseEntity<?> cancelParticipation(@RequestParam Long pctId) {
         participationService.cancelParticipation(pctId);
@@ -196,7 +215,6 @@ public class EventParticipationController {
     // ══════════════════════════════════════
     //   부스 취소
     // ══════════════════════════════════════
-
     @DeleteMapping("/cancelBoothParticipation")
     public ResponseEntity<?> cancelBoothParticipation(@RequestParam("pctBoothId") Long pctBoothId) {
         participationService.cancelBoothParticipation(pctBoothId);
@@ -206,7 +224,6 @@ public class EventParticipationController {
     // ══════════════════════════════════════
     //   주최자 부스 관리
     // ══════════════════════════════════════
-
     @GetMapping("/boothList/{eventId}")
     public ResponseEntity<?> getBoothList(@PathVariable Long eventId) {
         List<ParticipationBoothEntity> list =
@@ -217,22 +234,59 @@ public class EventParticipationController {
         return ResponseEntity.ok(response);
     }
 
+    //  승인 + 알림(9)
     @PutMapping("/approveBooth")
+    @Transactional
     public ResponseEntity<?> approveBooth(@RequestParam("pctBoothId") Long pctBoothId) {
         participationService.approveBooth(pctBoothId);
+
+        try {
+            ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId).orElse(null);
+            Long eventId = participationRepository.findEventIdByPctBoothId(pctBoothId);
+
+            if (booth != null && booth.getUserId() != null && eventId != null) {
+                notificationService.create(booth.getUserId(), NotiTypeId.BOOTH_ACCEPT, eventId, null);
+                log.info("[BOOTH_NOTI] created type=9 applicantId={} eventId={} pctBoothId={}",
+                        booth.getUserId(), eventId, pctBoothId);
+            } else {
+                log.info("[BOOTH_NOTI] skipped type=9 boothNull={} eventId={} pctBoothId={}",
+                        (booth == null), eventId, pctBoothId);
+            }
+        } catch (Exception e) {
+            log.error("[BOOTH_NOTI] failed type=9 pctBoothId={}", pctBoothId, e);
+        }
+
         return ResponseEntity.ok(Map.of("message", "부스 신청이 승인되었습니다."));
     }
 
+    //  반려 + 알림(10)
     @PutMapping("/rejectBooth")
+    @Transactional
     public ResponseEntity<?> rejectBooth(@RequestParam("pctBoothId") Long pctBoothId) {
         participationService.rejectBooth(pctBoothId);
+
+        try {
+            ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId).orElse(null);
+            Long eventId = participationRepository.findEventIdByPctBoothId(pctBoothId);
+
+            if (booth != null && booth.getUserId() != null && eventId != null) {
+                notificationService.create(booth.getUserId(), NotiTypeId.BOOTH_REJECT, eventId, null);
+                log.info("[BOOTH_NOTI] created type=10 applicantId={} eventId={} pctBoothId={}",
+                        booth.getUserId(), eventId, pctBoothId);
+            } else {
+                log.info("[BOOTH_NOTI] skipped type=10 boothNull={} eventId={} pctBoothId={}",
+                        (booth == null), eventId, pctBoothId);
+            }
+        } catch (Exception e) {
+            log.error("[BOOTH_NOTI] failed type=10 pctBoothId={}", pctBoothId, e);
+        }
+
         return ResponseEntity.ok(Map.of("message", "부스 신청이 반려되었습니다. 결제금액이 전액 환불됩니다."));
     }
 
     // ══════════════════════════════════════
     //   마이페이지
     // ══════════════════════════════════════
-
     @GetMapping("/myParticipations")
     public ResponseEntity<?> myParticipations(@RequestParam Long userId) {
         List<EventParticipationEntity> list =
@@ -250,7 +304,6 @@ public class EventParticipationController {
     // ══════════════════════════════════════
     //   유틸
     // ══════════════════════════════════════
-
     private Long getCurrentUserId() {
         try {
             var auth = org.springframework.security.core.context.SecurityContextHolder

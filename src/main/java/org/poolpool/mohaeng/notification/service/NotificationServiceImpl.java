@@ -38,6 +38,18 @@ public class NotificationServiceImpl implements NotificationService {
 
     private final Logger log = LoggerFactory.getLogger(NotificationServiceImpl.class);
 
+    // ✅ DB 컬럼 길이에 맞춰 조절 (SHOW CREATE TABLE로 실제 길이 확인해서 맞추면 제일 좋음)
+    private static final int STATUS_MAX_LEN = 50;
+
+    // ✅ null/blank 방지 + 길이 제한(잘림 방지)
+    private String fitStatus(String v) {
+        String s = (v == null) ? "" : v.trim();
+        if (s.isEmpty()) s = "미발송"; // 기본 상태
+        if (s.length() <= STATUS_MAX_LEN) return s;
+        // 너무 길면 잘라서 저장(에러 방지)
+        return s.substring(0, STATUS_MAX_LEN);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public PageResponse<NotificationItemDto> getList(long userId, Pageable pageable) {
@@ -99,20 +111,16 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional
     public void read(long userId, long notificationId) {
         int affected = notificationRepository.deleteByNotificationIdAndUserId(notificationId, userId);
-        if (affected == 0) {
-            throw new IllegalArgumentException("알림이 없거나 본인 알림이 아닙니다.");
-        }
+        if (affected == 0) throw new IllegalArgumentException("알림이 없거나 본인 알림이 아닙니다.");
     }
 
     @Override
     @Transactional
     public void readAll(long userId) {
-        int affected = notificationRepository.deleteByUserId(userId);
-        if (affected == 0) {
-            throw new IllegalArgumentException("삭제할 알림이 없습니다.");
-        }
+        notificationRepository.deleteByUserId(userId);
     }
 
+    // ✅ 여기 중요: create()에서도 status1/status2 기본값을 넣어줘야 NOT NULL/잘림 이슈가 안 남
     @Override
     @Transactional
     public long create(long userId, long notiTypeId, Long eventId, Long reportId) {
@@ -120,21 +128,21 @@ public class NotificationServiceImpl implements NotificationService {
             throw new EntityNotFoundException("존재하지 않는 알림 타입입니다.");
         }
 
-        //  핵심: DB가 status1 NOT NULL / 짧은 길이여도 안 터지게 기본값 넣기
         NotificationEntity n = NotificationEntity.builder()
                 .userId(userId)
                 .notiTypeId(notiTypeId)
                 .eventId(eventId)
                 .reportId(reportId)
-                .status1("0")
-                .status2("0")
+                .status1(fitStatus("미발송")) // ✅ 항상 안전한 값
+                .status2(fitStatus("미발송")) // ✅ status2가 NOT NULL일 수도 있으니 기본값
                 .build();
 
-        NotificationEntity saved = notificationRepository.save(n);
-        log.info("Notification created. id={}, userId={}, typeId={}", saved.getNotificationId(), userId, notiTypeId);
-        return saved.getNotificationId();
+        long id = notificationRepository.save(n).getNotificationId();
+        log.info("Notification created id={} userId={} typeId={} eventId={}", id, userId, notiTypeId, eventId);
+        return id;
     }
 
+    // ✅ 여기 중요: createWithStatus()로 들어오는 값이 길면 바로 잘라서 저장
     @Override
     @Transactional
     public long createWithStatus(long userId, long notiTypeId, Long eventId, Long reportId, String status1, String status2) {
@@ -147,11 +155,14 @@ public class NotificationServiceImpl implements NotificationService {
                 .notiTypeId(notiTypeId)
                 .eventId(eventId)
                 .reportId(reportId)
-                .status1(status1)
-                .status2(status2)
+                .status1(fitStatus(status1))
+                .status2(fitStatus(status2))
                 .build();
 
-        return notificationRepository.save(n).getNotificationId();
+        long id = notificationRepository.save(n).getNotificationId();
+        log.info("Notification createdWithStatus id={} userId={} typeId={} s1Len={} s2Len={}",
+                id, userId, notiTypeId, n.getStatus1().length(), n.getStatus2().length());
+        return id;
     }
 
     private String applyTemplate(NotificationTypeEntity type, String title, String reasonCategory) {
