@@ -22,7 +22,7 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
 
     // ✅ Issue 5: eventStatus 파라미터 추가 (NULL이면 전체 조회)
     @Query("SELECT e FROM EventEntity e WHERE "
-    	    + "(:keyword IS NULL OR e.title LIKE CONCAT('%', :keyword, '%') OR e.simpleExplain LIKE CONCAT('%', :keyword, '%')) AND "
+    	    + "(:keyword IS NULL OR REPLACE(e.title, ' ', '') LIKE CONCAT('%', REPLACE(:keyword, ' ', ''), '%') OR REPLACE(e.simpleExplain, ' ', '') LIKE CONCAT('%', REPLACE(:keyword, ' ', ''), '%')) AND "
     	    + "(:regionId IS NULL OR e.region.regionId BETWEEN :regionMin AND :regionMax) AND "
     	    + "(:filterStart IS NULL OR e.endDate >= :filterStart) AND "
     	    + "(:filterEnd IS NULL OR e.startDate <= :filterEnd) AND "
