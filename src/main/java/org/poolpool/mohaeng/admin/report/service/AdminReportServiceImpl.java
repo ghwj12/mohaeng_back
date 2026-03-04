@@ -1,6 +1,8 @@
 package org.poolpool.mohaeng.admin.report.service;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.poolpool.mohaeng.admin.report.dto.AdminReportCreateRequestDto;
 import org.poolpool.mohaeng.admin.report.dto.AdminReportDetailDto;
@@ -11,25 +13,44 @@ import org.poolpool.mohaeng.admin.report.type.ReportResult;
 import org.poolpool.mohaeng.common.api.PageResponse;
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
+import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothEntity;
+import org.poolpool.mohaeng.event.participation.repository.EventParticipationRepository;
 import org.poolpool.mohaeng.notification.service.NotificationService;
 import org.poolpool.mohaeng.notification.type.NotiTypeId;
+import org.poolpool.mohaeng.payment.entity.PaymentEntity;
+import org.poolpool.mohaeng.payment.repository.PaymentRepository;
+import org.poolpool.mohaeng.payment.service.PaymentService;
 import org.poolpool.mohaeng.user.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityNotFoundException;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class AdminReportServiceImpl implements AdminReportService {
 
+    private static final Logger log = LoggerFactory.getLogger(AdminReportServiceImpl.class);
+
     private final AdminReportRepository reportRepository;
     private final EventRepository eventRepository;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
+
+    private final EventParticipationRepository participationRepository;
+
+    private final PaymentRepository paymentRepository;
+    private final PaymentService paymentService;
+
+    @PersistenceContext
+    private EntityManager em;
 
     @Override
     @Transactional(readOnly = true)
@@ -104,10 +125,10 @@ public class AdminReportServiceImpl implements AdminReportService {
         EventEntity event = eventRepository.findById(r.getEventId())
             .orElseThrow(() -> new EntityNotFoundException("존재하지 않는 이벤트입니다."));
 
-        // 신고자에게 승인 알림(6)
+        // 신고자 승인 알림(6)
         notificationService.create(r.getReporterId(), NotiTypeId.REPORT_ACCEPT, r.getEventId(), null);
 
-        // 주최자에게 신고 승인 알림(5)
+        // 주최자 신고 승인 알림(5)
         if (event.getHost() != null && event.getHost().getUserId() != null) {
             long hostUserId = event.getHost().getUserId();
             if (hostUserId != r.getReporterId()) {
@@ -115,14 +136,17 @@ public class AdminReportServiceImpl implements AdminReportService {
             }
         }
 
-        // 이벤트 비활성화
+        //  이벤트 비활성화(삭제)
         event.changeStatusToDeleted();
 
-        //  삭제하지 말고 승인 상태로만 변경
-        r.setReportResult(ReportResult.APPROVED);
+        //  요구사항: 승인으로 이벤트 비활성화되면 reportResult = REPORT_DELETED
+        r.setReportResult(ReportResult.REPORT_DELETED);
 
-        //  같은 이벤트 다른 미처리 신고들은 반려로 내려서 아래 정렬
+        // 같은 이벤트 다른 미처리 신고 반려 정리
         reportRepository.rejectOtherPendings(r.getEventId(), r.getReportId());
+
+        //  전액 환불 + 환불 성공자에게만 11번 알림
+        sendRefundNoti11OnReportApproved(r.getEventId(), r.getReportId());
     }
 
     @Override
@@ -135,10 +159,9 @@ public class AdminReportServiceImpl implements AdminReportService {
             throw new IllegalStateException("이미 처리된 신고입니다.");
         }
 
-        // 신고자에게 반려 알림(7)
+        // 신고자 반려 알림(7)
         notificationService.create(r.getReporterId(), NotiTypeId.REPORT_REJECT, r.getEventId(), null);
 
-        //  삭제하지 말고 반려로만 변경
         r.setReportResult(ReportResult.REJECTED);
     }
 
@@ -150,7 +173,93 @@ public class AdminReportServiceImpl implements AdminReportService {
 
     private String getEventThumbSafe(Long eventId) {
         return eventRepository.findById(eventId)
-            .map(EventEntity::getThumbnail) // EventEntity.thumbnail
+            .map(EventEntity::getThumbnail)
             .orElse(null);
+    }
+
+    /**
+     *  신고 승인(행사 삭제) 시:
+     * - 전액 환불(남은 금액 전체)
+     * - 환불 성공자에게만 11번(REPORT_REFUND) 알림
+     */
+    private void sendRefundNoti11OnReportApproved(Long eventId, Long reportId) {
+        Set<Long> refundedUserIds = new HashSet<>();
+
+        // 1) 부스 환불: 결제완료/승인만
+        List<ParticipationBoothEntity> booths = participationRepository.findBoothsByEventId(eventId);
+        for (ParticipationBoothEntity b : booths) {
+            if (b == null || b.getPctBoothId() == null || b.getUserId() == null) continue;
+
+            String st = b.getStatus();
+            if (!"결제완료".equals(st) && !"승인".equals(st)) continue;
+
+            PaymentEntity pay = paymentRepository.findByPctBoothId(b.getPctBoothId()).orElse(null);
+            if (refundAllRemainingIfPossible(pay, "신고 승인(행사 삭제) - 부스 전액 환불")) {
+                refundedUserIds.add(b.getUserId());
+            }
+        }
+
+        // 2) 참여 환불: 결제완료 참여만 (userId까지 같이 뽑음)
+        List<Object[]> paidRows = em.createQuery(
+                "select p.pctId, p.userId " +
+                "from EventParticipationEntity p " +
+                "where p.eventId = :eventId and p.pctStatus = '결제완료'",
+                Object[].class
+        ).setParameter("eventId", eventId)
+         .getResultList();
+
+        for (Object[] row : paidRows) {
+            Long pctId = (Long) row[0];
+            Long userId = (Long) row[1];
+            if (pctId == null || userId == null) continue;
+
+            PaymentEntity pay = paymentRepository.findByPctId(pctId).orElse(null);
+            if (refundAllRemainingIfPossible(pay, "신고 승인(행사 삭제) - 참여 전액 환불")) {
+                refundedUserIds.add(userId);
+            }
+        }
+
+        // 3) 환불 성공자에게만 11번 알림
+        for (Long uid : refundedUserIds) {
+            try {
+                notificationService.create(uid, NotiTypeId.REPORT_REFUND, eventId, reportId);
+            } catch (Exception e) {
+                log.error("[REPORT_REFUND_NOTI] create failed type=11 uid={} eventId={} reportId={}",
+                        uid, eventId, reportId, e);
+            }
+        }
+
+        log.info("[REPORT_REFUND] done eventId={} reportId={} refundedUserCount={}",
+                eventId, reportId, refundedUserIds.size());
+    }
+
+    /**
+     *  전액 환불 = 남은 금액( amountTotal - canceledAmount ) 전부 환불
+     * - APPROVED / PARTIAL_CANCEL만 대상
+     * - CANCELLED면 스킵
+     */
+    private boolean refundAllRemainingIfPossible(PaymentEntity p, String reason) {
+        if (p == null) return false;
+        if (p.getPaymentKey() == null || p.getPaymentKey().isBlank()) return false;
+
+        String status = (p.getPaymentStatus() == null) ? "" : p.getPaymentStatus().toUpperCase();
+
+        if ("CANCELLED".equals(status) || "CANCELED".equals(status)) return false;
+        if (!"APPROVED".equals(status) && !"PARTIAL_CANCEL".equals(status)) return false;
+
+        int total = (p.getAmountTotal() == null) ? 0 : p.getAmountTotal();
+        int canceled = (p.getCanceledAmount() == null) ? 0 : p.getCanceledAmount();
+        int remaining = total - canceled;
+
+        if (remaining <= 0) return false;
+
+        try {
+            paymentService.cancelPayment(p.getPaymentKey(), remaining, reason);
+            return true;
+        } catch (Exception e) {
+            log.error("[REPORT_REFUND] refund failed paymentKey={} remaining={} reason={}",
+                    p.getPaymentKey(), remaining, reason, e);
+            return false;
+        }
     }
 }

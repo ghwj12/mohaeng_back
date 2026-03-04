@@ -1,6 +1,5 @@
+// src/main/java/org/poolpool/mohaeng/event/participation/controller/EventParticipationController.java
 package org.poolpool.mohaeng.event.participation.controller;
-
-import org.poolpool.mohaeng.event.list.entity.EventEntity;
 
 import java.io.File;
 import java.io.IOException;
@@ -20,13 +19,10 @@ import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothEntity;
 import org.poolpool.mohaeng.event.participation.entity.ParticipationBoothFacilityEntity;
 import org.poolpool.mohaeng.event.participation.repository.EventParticipationRepository;
 import org.poolpool.mohaeng.event.participation.service.EventParticipationService;
-import org.poolpool.mohaeng.payment.entity.PaymentEntity;
-import org.poolpool.mohaeng.payment.repository.PaymentRepository;
-
-//  부스 알림 추가
 import org.poolpool.mohaeng.notification.service.NotificationService;
 import org.poolpool.mohaeng.notification.type.NotiTypeId;
-
+import org.poolpool.mohaeng.payment.entity.PaymentEntity;
+import org.poolpool.mohaeng.payment.repository.PaymentRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -53,7 +49,7 @@ public class EventParticipationController {
     private final EventRepository eventRepository;
     private final ObjectMapper objectMapper;
 
-    //  알림 서비스 주입
+    // 알림 서비스 주입
     private final NotificationService notificationService;
 
     @PersistenceContext
@@ -62,14 +58,14 @@ public class EventParticipationController {
     @Value("${upload.path.pbooth:C:/upload_files/pbooth}")
     private String pboothUploadPath;
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //   부스 신청 생성
-    //   POST /api/eventParticipation/submitBoothApply?eventId={eventId}
-    //   consumes = multipart/form-data
-    //   - data: JSON 문자열
-    //   - files: 첨부파일 (optional)
-    //   - orderId: 유료 결제 시 포함 (결제 성공 후 호출)
-    // ══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
+    // 부스 신청 생성
+    // POST /api/eventParticipation/submitBoothApply?eventId={eventId}
+    // consumes = multipart/form-data
+    // - data: JSON 문자열
+    // - files: 첨부파일 (optional)
+    // - orderId: 유료 결제 시 포함 (결제 성공 후 호출)
+    // ─────────────────────────────────────────────────────────────────────────
 
     @PostMapping(value = "/submitBoothApply", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Transactional
@@ -125,7 +121,7 @@ public class EventParticipationController {
         Long pctBoothId = booth.getPctBoothId();
         log.info("[부스 신청] pctBoothId={} 생성, status={}", pctBoothId, booth.getStatus());
 
-        //  (추가) 부스 신청 알림(8): 행사 주최자에게
+        // 부스 신청 알림(8): 행사 주최자에게
         try {
             EventEntity event = eventRepository.findById(eventId).orElse(null);
             Long hostId = (event != null && event.getHost() != null) ? event.getHost().getUserId() : null;
@@ -184,7 +180,6 @@ public class EventParticipationController {
             File uploadDir = new File(pboothUploadPath);
             if (!uploadDir.exists()) uploadDir.mkdirs();
 
-            //  FileEntity.event_id NOT NULL → event 조회 필요
             EventEntity eventEntity = eventRepository.findById(eventId).orElse(null);
 
             String datePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
@@ -194,10 +189,12 @@ public class EventParticipationController {
                 String ext = (originalName != null && originalName.contains("."))
                         ? originalName.substring(originalName.lastIndexOf(".")) : "";
                 String saveName = datePart + "_" + UUID.randomUUID().toString().replace("-", "") + ext;
+
                 try {
                     file.transferTo(new File(uploadDir, saveName));
+
                     FileEntity fileEntity = FileEntity.builder()
-                            .event(eventEntity)   //  event_id NOT NULL 해결
+                            .event(eventEntity)
                             .pctBooth(booth)
                             .fileType("P_BOOTH")
                             .originalFileName(originalName)
@@ -206,6 +203,7 @@ public class EventParticipationController {
                             .createdAt(LocalDateTime.now())
                             .build();
                     em.persist(fileEntity);
+
                     log.info("[부스파일 저장] {} → {}", originalName, saveName);
                 } catch (IOException e) {
                     log.error("[부스파일 저장 실패] {}", originalName, e);
@@ -217,9 +215,9 @@ public class EventParticipationController {
         return ResponseEntity.ok(Map.of("pctBoothId", pctBoothId));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //   일반 행사 참여 생성
-    // ══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
+    // 일반 행사 참여 생성
+    // ─────────────────────────────────────────────────────────────────────────
 
     @PostMapping("/submitParticipation")
     @Transactional
@@ -232,7 +230,6 @@ public class EventParticipationController {
 
         PaymentEntity payment = null;
         if (orderId != null && !orderId.isBlank()) {
-            // confirm과 submit이 동시에 실행될 수 있어 APPROVED 상태가 될 때까지 최대 3초 재시도
             for (int retry = 0; retry < 6; retry++) {
                 payment = paymentRepository.findByOrderId(orderId).orElse(null);
                 if (payment != null && "APPROVED".equals(payment.getPaymentStatus())) break;
@@ -279,9 +276,9 @@ public class EventParticipationController {
         return ResponseEntity.ok(Map.of("pctId", pctId));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //   취소
-    // ══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
+    // 취소/삭제
+    // ─────────────────────────────────────────────────────────────────────────
 
     @DeleteMapping("/cancelParticipation")
     public ResponseEntity<?> cancelParticipation(@RequestParam("pctId") Long pctId) {
@@ -299,8 +296,10 @@ public class EventParticipationController {
             .setParameter("pctId", pctId)
             .setParameter("userId", userId)
             .executeUpdate();
+
         if (updated == 0)
             return ResponseEntity.badRequest().body(Map.of("message", "삭제할 수 없는 참여 내역입니다."));
+
         return ResponseEntity.ok(Map.of("message", "삭제되었습니다."));
     }
 
@@ -310,9 +309,9 @@ public class EventParticipationController {
         return ResponseEntity.ok(Map.of("message", "부스 취소가 완료되었습니다."));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //   주최자 부스 관리
-    // ══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
+    // 주최자 부스 관리
+    // ─────────────────────────────────────────────────────────────────────────
 
     @GetMapping("/boothList/{eventId}")
     public ResponseEntity<?> getBoothList(@PathVariable Long eventId) {
@@ -320,7 +319,7 @@ public class EventParticipationController {
         return ResponseEntity.ok(list.stream().map(BoothListResponseDto::fromEntity).toList());
     }
 
-    //  승인 + 알림(9)
+    // 승인 + 알림(9)
     @PutMapping("/approveBooth")
     @Transactional
     public ResponseEntity<?> approveBooth(@RequestParam("pctBoothId") Long pctBoothId) {
@@ -345,7 +344,7 @@ public class EventParticipationController {
         return ResponseEntity.ok(Map.of("message", "부스 신청이 승인되었습니다."));
     }
 
-    //  반려 + 알림(10)
+    // 반려 + 알림(10)   (요청대로 10번만 발송)
     @PutMapping("/rejectBooth")
     @Transactional
     public ResponseEntity<?> rejectBooth(@RequestParam("pctBoothId") Long pctBoothId) {
@@ -367,12 +366,12 @@ public class EventParticipationController {
             log.error("[BOOTH_NOTI] failed type=10 pctBoothId={}", pctBoothId, e);
         }
 
-        return ResponseEntity.ok(Map.of("message", "부스 신청이 반려되었습니다. 결제금액이 전액 환불됩니다."));
+        return ResponseEntity.ok(Map.of("message", "부스 신청이 반려되었습니다."));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //   마이페이지
-    // ══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
+    // 마이페이지
+    // ─────────────────────────────────────────────────────────────────────────
 
     @GetMapping("/myParticipations")
     public ResponseEntity<?> myParticipations() {
@@ -388,9 +387,9 @@ public class EventParticipationController {
         return ResponseEntity.ok(participationRepository.findBoothsByUserId(userId));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //   유틸
-    // ══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
+    // 유틸
+    // ─────────────────────────────────────────────────────────────────────────
 
     private Long getCurrentUserId() {
         try {
