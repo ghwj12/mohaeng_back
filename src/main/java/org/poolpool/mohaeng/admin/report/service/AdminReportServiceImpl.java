@@ -136,17 +136,20 @@ public class AdminReportServiceImpl implements AdminReportService {
             }
         }
 
-        //  이벤트 비활성화(삭제)
+        // 이벤트 비활성화(삭제)
         event.changeStatusToDeleted();
 
-        //  요구사항: 승인으로 이벤트 비활성화되면 reportResult = REPORT_DELETED
+        // 승인으로 이벤트 비활성화되면 reportResult = REPORT_DELETED
         r.setReportResult(ReportResult.REPORT_DELETED);
 
         // 같은 이벤트 다른 미처리 신고 반려 정리
         reportRepository.rejectOtherPendings(r.getEventId(), r.getReportId());
 
-        //  전액 환불 + 환불 성공자에게만 11번 알림
+        // 전액 환불 + 환불 성공자에게만 11번 알림
         sendRefundNoti11OnReportApproved(r.getEventId(), r.getReportId());
+
+        //  추가: 무료 참여자(참여확정)에게 12번 알림
+        sendPctCancelNoti12ForFreeParticipants(r.getEventId(), r.getReportId());
     }
 
     @Override
@@ -178,7 +181,7 @@ public class AdminReportServiceImpl implements AdminReportService {
     }
 
     /**
-     *  신고 승인(행사 삭제) 시:
+     * 신고 승인(행사 삭제) 시:
      * - 전액 환불(남은 금액 전체)
      * - 환불 성공자에게만 11번(REPORT_REFUND) 알림
      */
@@ -234,7 +237,31 @@ public class AdminReportServiceImpl implements AdminReportService {
     }
 
     /**
-     *  전액 환불 = 남은 금액( amountTotal - canceledAmount ) 전부 환불
+     *  무료 행사 참여자(참여확정)에게 12번(REPORT_PCTCANCEL) 알림
+     */
+    private void sendPctCancelNoti12ForFreeParticipants(Long eventId, Long reportId) {
+        try {
+            List<Long> freeUserIds = em.createQuery(
+                    "select distinct p.userId " +
+                    "from EventParticipationEntity p " +
+                    "where p.eventId = :eventId and p.pctStatus = '참여확정'",
+                    Long.class
+            ).setParameter("eventId", eventId)
+             .getResultList();
+
+            for (Long uid : freeUserIds) {
+                notificationService.create(uid, NotiTypeId.REPORT_PCTCANCEL, eventId, reportId);
+            }
+
+            log.info("[REPORT_PCTCANCEL_NOTI] sent type=12 eventId={} reportId={} targetCount={}",
+                    eventId, reportId, freeUserIds.size());
+        } catch (Exception e) {
+            log.error("[REPORT_PCTCANCEL_NOTI] failed type=12 eventId={} reportId={}", eventId, reportId, e);
+        }
+    }
+
+    /**
+     * 전액 환불 = 남은 금액( amountTotal - canceledAmount ) 전부 환불
      * - APPROVED / PARTIAL_CANCEL만 대상
      * - CANCELLED면 스킵
      */

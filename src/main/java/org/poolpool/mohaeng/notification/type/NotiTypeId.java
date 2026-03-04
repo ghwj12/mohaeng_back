@@ -15,6 +15,7 @@ public final class NotiTypeId {
     public static final long BOOTH_ACCEPT = 9L;
     public static final long BOOTH_REJECT = 10L;
     public static final long REPORT_REFUND = 11L;
+    public static final long REPORT_PCTCANCEL = 12L;
     
     private NotiTypeId() {}
 }
