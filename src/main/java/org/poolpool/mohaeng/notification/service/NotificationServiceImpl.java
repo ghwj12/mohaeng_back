@@ -38,15 +38,12 @@ public class NotificationServiceImpl implements NotificationService {
 
     private final Logger log = LoggerFactory.getLogger(NotificationServiceImpl.class);
 
-    // ✅ DB 컬럼 길이에 맞춰 조절 (SHOW CREATE TABLE로 실제 길이 확인해서 맞추면 제일 좋음)
     private static final int STATUS_MAX_LEN = 50;
 
-    // ✅ null/blank 방지 + 길이 제한(잘림 방지)
     private String fitStatus(String v) {
         String s = (v == null) ? "" : v.trim();
-        if (s.isEmpty()) s = "미발송"; // 기본 상태
+        if (s.isEmpty()) s = "미발송";
         if (s.length() <= STATUS_MAX_LEN) return s;
-        // 너무 길면 잘라서 저장(에러 방지)
         return s.substring(0, STATUS_MAX_LEN);
     }
 
@@ -58,6 +55,7 @@ public class NotificationServiceImpl implements NotificationService {
             return new PageResponse<>(List.of(), pageable.getPageNumber(), pageable.getPageSize(), 0L, 0);
         }
 
+        // 타입 조회
         List<Long> typeIds = page.getContent().stream()
                 .map(NotificationEntity::getNotiTypeId)
                 .distinct()
@@ -66,6 +64,7 @@ public class NotificationServiceImpl implements NotificationService {
         Map<Long, NotificationTypeEntity> typeMap = notificationTypeRepository.findAllByNotiTypeIdIn(typeIds).stream()
                 .collect(Collectors.toMap(NotificationTypeEntity::getNotiTypeId, Function.identity()));
 
+        // 이벤트 제목 조회
         List<Long> eventIds = page.getContent().stream()
                 .map(NotificationEntity::getEventId)
                 .filter(Objects::nonNull)
@@ -75,6 +74,7 @@ public class NotificationServiceImpl implements NotificationService {
         Map<Long, String> eventTitleMap = eventRepository.findAllById(eventIds).stream()
                 .collect(Collectors.toMap(EventEntity::getEventId, EventEntity::getTitle));
 
+        // 신고 사유 조회 (reportId 기반)
         List<Long> reportIds = page.getContent().stream()
                 .map(NotificationEntity::getReportId)
                 .filter(Objects::nonNull)
@@ -89,16 +89,19 @@ public class NotificationServiceImpl implements NotificationService {
                     NotificationTypeEntity type = typeMap.get(n.getNotiTypeId());
                     String title = n.getEventId() == null ? "" : eventTitleMap.getOrDefault(n.getEventId(), "");
                     String reasonCategory = n.getReportId() == null ? "" : reportReasonMap.getOrDefault(n.getReportId(), "");
+
                     String contents = applyTemplate(type, title, reasonCategory);
                     return NotificationItemDto.fromEntity(n, type, contents);
                 })
                 .toList();
 
-        return new PageResponse<>(items,
+        return new PageResponse<>(
+                items,
                 pageable.getPageNumber(),
                 pageable.getPageSize(),
                 page.getTotalElements(),
-                page.getTotalPages());
+                page.getTotalPages()
+        );
     }
 
     @Override
@@ -120,7 +123,6 @@ public class NotificationServiceImpl implements NotificationService {
         notificationRepository.deleteByUserId(userId);
     }
 
-    // ✅ 여기 중요: create()에서도 status1/status2 기본값을 넣어줘야 NOT NULL/잘림 이슈가 안 남
     @Override
     @Transactional
     public long create(long userId, long notiTypeId, Long eventId, Long reportId) {
@@ -133,16 +135,17 @@ public class NotificationServiceImpl implements NotificationService {
                 .notiTypeId(notiTypeId)
                 .eventId(eventId)
                 .reportId(reportId)
-                .status1(fitStatus("미발송")) // ✅ 항상 안전한 값
-                .status2(fitStatus("미발송")) // ✅ status2가 NOT NULL일 수도 있으니 기본값
+                .status1(fitStatus("미발송"))
+                .status2(fitStatus("미발송"))
                 .build();
 
         long id = notificationRepository.save(n).getNotificationId();
-        log.info("Notification created id={} userId={} typeId={} eventId={}", id, userId, notiTypeId, eventId);
+        log.info("Notification created id={} userId={} typeId={} eventId={} reportId={}",
+                id, userId, notiTypeId, eventId, reportId);
         return id;
     }
 
-    // ✅ 여기 중요: createWithStatus()로 들어오는 값이 길면 바로 잘라서 저장
+    //  인터페이스에 선언되어 있으니 반드시 구현해야 함
     @Override
     @Transactional
     public long createWithStatus(long userId, long notiTypeId, Long eventId, Long reportId, String status1, String status2) {
@@ -160,15 +163,35 @@ public class NotificationServiceImpl implements NotificationService {
                 .build();
 
         long id = notificationRepository.save(n).getNotificationId();
-        log.info("Notification createdWithStatus id={} userId={} typeId={} s1Len={} s2Len={}",
-                id, userId, notiTypeId, n.getStatus1().length(), n.getStatus2().length());
+        log.info("Notification createWithStatus id={} userId={} typeId={} eventId={} reportId={}",
+                id, userId, notiTypeId, eventId, reportId);
         return id;
+    }
+
+    //  신고 사유 코드 → 한글 라벨 (프론트 ReportCategorySelect 목록과 동일)
+    private String reasonCategoryLabel(String code) {
+        if (code == null) return "";
+        String v = code.trim();
+        if (v.isEmpty()) return "";
+
+        return switch (v) {
+            case "SPAM" -> "광고/스팸/도배";
+            case "FRAUD" -> "허위 정보/내용 불일치";
+            case "COPYRIGHT" -> "도용/사칭/저작권 침해";
+            case "INAPPROPRIATE" -> "부적절한 내용";
+            case "DUPLICATE" -> "중복/반복 등록";
+            case "OTHER" -> "기타";
+            default -> v;
+        };
     }
 
     private String applyTemplate(NotificationTypeEntity type, String title, String reasonCategory) {
         if (type == null || type.getNotiTypeContents() == null) return "";
+
+        String rc = reasonCategoryLabel(reasonCategory);
+
         return type.getNotiTypeContents()
                 .replace("[TITLE]", title == null ? "" : title)
-                .replace("[REASON_CATEGORY]", reasonCategory == null ? "" : reasonCategory);
+                .replace("[REASON_CATEGORY]", rc);
     }
 }

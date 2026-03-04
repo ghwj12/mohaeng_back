@@ -104,7 +104,7 @@ public class AdminReportServiceImpl implements AdminReportService {
         AdminReportFEntity r = AdminReportFEntity.builder()
             .eventId(eventId)
             .reporterId(reporterId)
-            .reasonCategory(request.getReasonCategory())
+            .reasonCategory(request.getReasonCategory())   // SPAM/FRAUD/... 저장
             .reasonDetailText(request.getReasonDetailText())
             .reportResult(ReportResult.PENDING)
             .build();
@@ -125,30 +125,40 @@ public class AdminReportServiceImpl implements AdminReportService {
         EventEntity event = eventRepository.findById(r.getEventId())
             .orElseThrow(() -> new EntityNotFoundException("존재하지 않는 이벤트입니다."));
 
-        // 신고자 승인 알림(6)
-        notificationService.create(r.getReporterId(), NotiTypeId.REPORT_ACCEPT, r.getEventId(), null);
+        //  6) 신고자 승인 알림: reportId 필수(그래야 REASON_CATEGORY 치환됨)
+        notificationService.create(
+            r.getReporterId(),
+            NotiTypeId.REPORT_ACCEPT,
+            r.getEventId(),
+            r.getReportId()
+        );
 
-        // 주최자 신고 승인 알림(5)
+        // 5) 주최자 알림(원하면 reportId 같이 저장해도 됨)
         if (event.getHost() != null && event.getHost().getUserId() != null) {
             long hostUserId = event.getHost().getUserId();
             if (hostUserId != r.getReporterId()) {
-                notificationService.create(hostUserId, NotiTypeId.REPORT_RECEIVER, r.getEventId(), null);
+                notificationService.create(
+                    hostUserId,
+                    NotiTypeId.REPORT_RECEIVER,
+                    r.getEventId(),
+                    r.getReportId()
+                );
             }
         }
 
-        // 이벤트 비활성화(삭제)
+        // 이벤트 비활성화
         event.changeStatusToDeleted();
 
-        // 승인으로 이벤트 비활성화되면 reportResult = REPORT_DELETED
+        //  승인으로 이벤트 비활성화되면 REPORT_DELETED
         r.setReportResult(ReportResult.REPORT_DELETED);
 
         // 같은 이벤트 다른 미처리 신고 반려 정리
         reportRepository.rejectOtherPendings(r.getEventId(), r.getReportId());
 
-        // 전액 환불 + 환불 성공자에게만 11번 알림
+        //  전액 환불 + 환불 성공자에게만 11번 알림
         sendRefundNoti11OnReportApproved(r.getEventId(), r.getReportId());
 
-        //  추가: 무료 참여자(참여확정)에게 12번 알림
+        //  무료 참여자(참여확정)에게 12번 알림
         sendPctCancelNoti12ForFreeParticipants(r.getEventId(), r.getReportId());
     }
 
@@ -162,8 +172,13 @@ public class AdminReportServiceImpl implements AdminReportService {
             throw new IllegalStateException("이미 처리된 신고입니다.");
         }
 
-        // 신고자 반려 알림(7)
-        notificationService.create(r.getReporterId(), NotiTypeId.REPORT_REJECT, r.getEventId(), null);
+        //  7) 신고자 반려 알림: reportId 필수
+        notificationService.create(
+            r.getReporterId(),
+            NotiTypeId.REPORT_REJECT,
+            r.getEventId(),
+            r.getReportId()
+        );
 
         r.setReportResult(ReportResult.REJECTED);
     }
@@ -180,15 +195,13 @@ public class AdminReportServiceImpl implements AdminReportService {
             .orElse(null);
     }
 
-    /**
-     * 신고 승인(행사 삭제) 시:
-     * - 전액 환불(남은 금액 전체)
-     * - 환불 성공자에게만 11번(REPORT_REFUND) 알림
-     */
+    // ───────────────────────────────────────────────────────────────
+    // 11번(환불) 처리
+    // ───────────────────────────────────────────────────────────────
     private void sendRefundNoti11OnReportApproved(Long eventId, Long reportId) {
         Set<Long> refundedUserIds = new HashSet<>();
 
-        // 1) 부스 환불: 결제완료/승인만
+        // 1) 부스: 결제완료/승인만 환불 + 11 알림
         List<ParticipationBoothEntity> booths = participationRepository.findBoothsByEventId(eventId);
         for (ParticipationBoothEntity b : booths) {
             if (b == null || b.getPctBoothId() == null || b.getUserId() == null) continue;
@@ -202,7 +215,7 @@ public class AdminReportServiceImpl implements AdminReportService {
             }
         }
 
-        // 2) 참여 환불: 결제완료 참여만 (userId까지 같이 뽑음)
+        // 2) 참여: 결제완료만 환불 + 11 알림
         List<Object[]> paidRows = em.createQuery(
                 "select p.pctId, p.userId " +
                 "from EventParticipationEntity p " +
@@ -227,18 +240,36 @@ public class AdminReportServiceImpl implements AdminReportService {
             try {
                 notificationService.create(uid, NotiTypeId.REPORT_REFUND, eventId, reportId);
             } catch (Exception e) {
-                log.error("[REPORT_REFUND_NOTI] create failed type=11 uid={} eventId={} reportId={}",
-                        uid, eventId, reportId, e);
+                log.error("[REPORT_REFUND_NOTI] failed uid={} eventId={} reportId={}", uid, eventId, reportId, e);
             }
         }
-
-        log.info("[REPORT_REFUND] done eventId={} reportId={} refundedUserCount={}",
-                eventId, reportId, refundedUserIds.size());
     }
 
-    /**
-     *  무료 행사 참여자(참여확정)에게 12번(REPORT_PCTCANCEL) 알림
-     */
+    private boolean refundAllRemainingIfPossible(PaymentEntity p, String reason) {
+        if (p == null) return false;
+        if (p.getPaymentKey() == null || p.getPaymentKey().isBlank()) return false;
+
+        String status = (p.getPaymentStatus() == null) ? "" : p.getPaymentStatus().toUpperCase();
+        if ("CANCELLED".equals(status) || "CANCELED".equals(status)) return false;
+        if (!"APPROVED".equals(status) && !"PARTIAL_CANCEL".equals(status)) return false;
+
+        int total = (p.getAmountTotal() == null) ? 0 : p.getAmountTotal();
+        int canceled = (p.getCanceledAmount() == null) ? 0 : p.getCanceledAmount();
+        int remaining = total - canceled;
+        if (remaining <= 0) return false;
+
+        try {
+            paymentService.cancelPayment(p.getPaymentKey(), remaining, reason);
+            return true;
+        } catch (Exception e) {
+            log.error("[REPORT_REFUND] failed paymentKey={} remaining={}", p.getPaymentKey(), remaining, e);
+            return false;
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // 12번(무료 참여 취소) 처리
+    // ───────────────────────────────────────────────────────────────
     private void sendPctCancelNoti12ForFreeParticipants(Long eventId, Long reportId) {
         try {
             List<Long> freeUserIds = em.createQuery(
@@ -252,41 +283,8 @@ public class AdminReportServiceImpl implements AdminReportService {
             for (Long uid : freeUserIds) {
                 notificationService.create(uid, NotiTypeId.REPORT_PCTCANCEL, eventId, reportId);
             }
-
-            log.info("[REPORT_PCTCANCEL_NOTI] sent type=12 eventId={} reportId={} targetCount={}",
-                    eventId, reportId, freeUserIds.size());
         } catch (Exception e) {
-            log.error("[REPORT_PCTCANCEL_NOTI] failed type=12 eventId={} reportId={}", eventId, reportId, e);
-        }
-    }
-
-    /**
-     * 전액 환불 = 남은 금액( amountTotal - canceledAmount ) 전부 환불
-     * - APPROVED / PARTIAL_CANCEL만 대상
-     * - CANCELLED면 스킵
-     */
-    private boolean refundAllRemainingIfPossible(PaymentEntity p, String reason) {
-        if (p == null) return false;
-        if (p.getPaymentKey() == null || p.getPaymentKey().isBlank()) return false;
-
-        String status = (p.getPaymentStatus() == null) ? "" : p.getPaymentStatus().toUpperCase();
-
-        if ("CANCELLED".equals(status) || "CANCELED".equals(status)) return false;
-        if (!"APPROVED".equals(status) && !"PARTIAL_CANCEL".equals(status)) return false;
-
-        int total = (p.getAmountTotal() == null) ? 0 : p.getAmountTotal();
-        int canceled = (p.getCanceledAmount() == null) ? 0 : p.getCanceledAmount();
-        int remaining = total - canceled;
-
-        if (remaining <= 0) return false;
-
-        try {
-            paymentService.cancelPayment(p.getPaymentKey(), remaining, reason);
-            return true;
-        } catch (Exception e) {
-            log.error("[REPORT_REFUND] refund failed paymentKey={} remaining={} reason={}",
-                    p.getPaymentKey(), remaining, reason, e);
-            return false;
+            log.error("[REPORT_PCTCANCEL_NOTI] failed eventId={} reportId={}", eventId, reportId, e);
         }
     }
 }
