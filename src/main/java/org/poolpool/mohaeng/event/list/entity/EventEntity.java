@@ -10,21 +10,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.poolpool.mohaeng.user.entity.UserEntity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import jakarta.persistence.*;
+import lombok.*;
 
 @Entity
 @Table(name = "event")
@@ -41,7 +28,7 @@ public class EventEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "host_id")
-    private UserEntity host; 
+    private UserEntity host;
 
     @Column(nullable = false, length = 200)
     private String title;
@@ -60,8 +47,12 @@ public class EventEntity {
     private LocalDate endDate;
     private LocalTime startTime;
     private LocalTime endTime;
+
+    // 참여자 모집
     private LocalDate startRecruit;
     private LocalDate endRecruit;
+
+    // 부스 모집
     private LocalDate boothStartRecruit;
     private LocalDate boothEndRecruit;
 
@@ -97,23 +88,28 @@ public class EventEntity {
     @UpdateTimestamp
     @Column(name = "UPDATED_AT")
     private LocalDateTime updatedAt;
+
     private String zipCode;
     private String topicIds;
     private String hashtagIds;
-    
+
     @OneToMany(mappedBy = "event", fetch = FetchType.LAZY)
-    @Builder.Default // 빌더 사용 시 리스트 초기화 유지
+    @Builder.Default
     private List<FileEntity> eventFiles = new ArrayList<>();
-    
-    
+
     public void changeStatusToHostDeleted() {
         this.eventStatus = "행사삭제";
     }
 
-public void changeStatusToDeleted() {
+    public void changeStatusToDeleted() {
         this.eventStatus = "DELETED";
     }
-    
+
+    //  추가: 신고 승인으로 삭제된 이벤트
+    public void changeStatusToReportDeleted() {
+        this.eventStatus = "REPORT_DELETED";
+    }
+
     public void updateCategoryAndRegion(EventCategoryEntity category, EventRegionEntity region) {
         this.category = category;
         this.region = region;

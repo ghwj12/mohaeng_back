@@ -55,7 +55,6 @@ public class NotificationServiceImpl implements NotificationService {
             return new PageResponse<>(List.of(), pageable.getPageNumber(), pageable.getPageSize(), 0L, 0);
         }
 
-        // 타입 조회
         List<Long> typeIds = page.getContent().stream()
                 .map(NotificationEntity::getNotiTypeId)
                 .distinct()
@@ -64,7 +63,6 @@ public class NotificationServiceImpl implements NotificationService {
         Map<Long, NotificationTypeEntity> typeMap = notificationTypeRepository.findAllByNotiTypeIdIn(typeIds).stream()
                 .collect(Collectors.toMap(NotificationTypeEntity::getNotiTypeId, Function.identity()));
 
-        // 이벤트 제목 조회
         List<Long> eventIds = page.getContent().stream()
                 .map(NotificationEntity::getEventId)
                 .filter(Objects::nonNull)
@@ -74,7 +72,6 @@ public class NotificationServiceImpl implements NotificationService {
         Map<Long, String> eventTitleMap = eventRepository.findAllById(eventIds).stream()
                 .collect(Collectors.toMap(EventEntity::getEventId, EventEntity::getTitle));
 
-        // 신고 사유 조회 (reportId 기반)
         List<Long> reportIds = page.getContent().stream()
                 .map(NotificationEntity::getReportId)
                 .filter(Objects::nonNull)
@@ -89,7 +86,6 @@ public class NotificationServiceImpl implements NotificationService {
                     NotificationTypeEntity type = typeMap.get(n.getNotiTypeId());
                     String title = n.getEventId() == null ? "" : eventTitleMap.getOrDefault(n.getEventId(), "");
                     String reasonCategory = n.getReportId() == null ? "" : reportReasonMap.getOrDefault(n.getReportId(), "");
-
                     String contents = applyTemplate(type, title, reasonCategory);
                     return NotificationItemDto.fromEntity(n, type, contents);
                 })
@@ -145,7 +141,6 @@ public class NotificationServiceImpl implements NotificationService {
         return id;
     }
 
-    //  인터페이스에 선언되어 있으니 반드시 구현해야 함
     @Override
     @Transactional
     public long createWithStatus(long userId, long notiTypeId, Long eventId, Long reportId, String status1, String status2) {
@@ -168,7 +163,7 @@ public class NotificationServiceImpl implements NotificationService {
         return id;
     }
 
-    //  신고 사유 코드 → 한글 라벨 (프론트 ReportCategorySelect 목록과 동일)
+    // 프론트 ReportCategorySelect와 동일
     private String reasonCategoryLabel(String code) {
         if (code == null) return "";
         String v = code.trim();
@@ -178,7 +173,7 @@ public class NotificationServiceImpl implements NotificationService {
             case "SPAM" -> "광고/스팸/도배";
             case "FRAUD" -> "허위 정보/내용 불일치";
             case "COPYRIGHT" -> "도용/사칭/저작권 침해";
-            case "INAPPROPRIATE" -> "부적절한 내용";
+            case "INAPPROPRIATE", "ABUSE", "ADULT", "ILLEGAL" -> "부적절한 내용";
             case "DUPLICATE" -> "중복/반복 등록";
             case "OTHER" -> "기타";
             default -> v;
