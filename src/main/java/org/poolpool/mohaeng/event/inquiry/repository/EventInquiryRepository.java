@@ -29,7 +29,8 @@ public interface EventInquiryRepository extends JpaRepository<EventInquiryEntity
             i.status,
             i.createdAt,
             e.title,
-            e.thumbnail
+            e.thumbnail,
+            e.eventStatus
         )
         from EventInquiryEntity i
         join UserEntity u on u.userId = i.userId
@@ -39,7 +40,7 @@ public interface EventInquiryRepository extends JpaRepository<EventInquiryEntity
     """)
     List<EventInquiryDto> findInquiryListDtoByEventId(@Param("eventId") Long eventId);
 
-    // ✅ WRITTEN: 내가 작성한 문의 (삭제된 행사 제외)
+    // ✅ WRITTEN: 내가 작성한 문의
     @Query(
         value = """
             select new org.poolpool.mohaeng.event.inquiry.dto.EventInquiryDto(
@@ -54,26 +55,24 @@ public interface EventInquiryRepository extends JpaRepository<EventInquiryEntity
                 i.status,
                 i.createdAt,
                 e.title,
-                e.thumbnail
+                e.thumbnail,
+                e.eventStatus
             )
             from EventInquiryEntity i
             join UserEntity u on u.userId = i.userId
             join EventEntity e on e.eventId = i.eventId
             where i.userId = :me
-            and e.eventStatus <> 'DELETED'
             order by i.createdAt desc
         """,
         countQuery = """
             select count(i)
             from EventInquiryEntity i
-            join EventEntity e on e.eventId = i.eventId
             where i.userId = :me
-            and e.eventStatus <> 'DELETED'
         """
     )
     Page<EventInquiryDto> findWrittenForMypageDto(@Param("me") Long me, Pageable pageable);
 
-    // ✅ RECEIVED: 내가 주최한 행사에 달린 문의 (삭제된 행사 제외)
+    // ✅ RECEIVED: 내가 주최한 행사에 달린 문의
     @Query(
         value = """
             select new org.poolpool.mohaeng.event.inquiry.dto.EventInquiryDto(
@@ -88,13 +87,13 @@ public interface EventInquiryRepository extends JpaRepository<EventInquiryEntity
                 i.status,
                 i.createdAt,
                 e.title,
-                e.thumbnail
+                e.thumbnail,
+                e.eventStatus
             )
             from EventInquiryEntity i
             join UserEntity u on u.userId = i.userId
             join EventEntity e on e.eventId = i.eventId
             where e.host.userId = :me
-            and e.eventStatus <> 'DELETED'
             order by i.createdAt desc
         """,
         countQuery = """
@@ -102,12 +101,11 @@ public interface EventInquiryRepository extends JpaRepository<EventInquiryEntity
             from EventInquiryEntity i
             join EventEntity e on e.eventId = i.eventId
             where e.host.userId = :me
-            and e.eventStatus <> 'DELETED'
         """
     )
     Page<EventInquiryDto> findReceivedForMypageDto(@Param("me") Long me, Pageable pageable);
 
-    // ✅ ALL: 내가 작성 OR 내가 주최 행사에 달린 문의 (삭제된 행사 제외)
+    // ✅ ALL: 내가 작성 OR 내가 주최 행사에 달린 문의
     @Query(
         value = """
             select new org.poolpool.mohaeng.event.inquiry.dto.EventInquiryDto(
@@ -122,13 +120,13 @@ public interface EventInquiryRepository extends JpaRepository<EventInquiryEntity
                 i.status,
                 i.createdAt,
                 e.title,
-                e.thumbnail
+                e.thumbnail,
+                e.eventStatus
             )
             from EventInquiryEntity i
             join UserEntity u on u.userId = i.userId
             join EventEntity e on e.eventId = i.eventId
             where ((i.userId = :me) or (e.host.userId = :me))
-            and e.eventStatus <> 'DELETED'
             order by i.createdAt desc
         """,
         countQuery = """
@@ -136,7 +134,6 @@ public interface EventInquiryRepository extends JpaRepository<EventInquiryEntity
             from EventInquiryEntity i
             join EventEntity e on e.eventId = i.eventId
             where ((i.userId = :me) or (e.host.userId = :me))
-            and e.eventStatus <> 'DELETED'
         """
     )
     Page<EventInquiryDto> findAllForMypageDto(@Param("me") Long me, Pageable pageable);

@@ -26,6 +26,7 @@ public class EventParticipationDto {
     private String eventStartDate;
     private String eventEndDate;
     private Integer payAmount;
+    private String eventStatus; // ✅ 추가: DELETED / REPORTDELETED 판별용
 
     // ─── 행사 정보 없이 엔티티만으로 변환 ───
     public static EventParticipationDto fromEntity(EventParticipationEntity e) {
@@ -54,11 +55,12 @@ public class EventParticipationDto {
         if (event != null) {
             d.eventTitle     = event.getTitle();
             d.simpleExplain  = event.getSimpleExplain();
-            d.thumbnail     = event.getThumbnail();
+            d.thumbnail      = event.getThumbnail();
             d.eventStartDate = event.getStartDate() != null
                     ? event.getStartDate().toString() : null;
             d.eventEndDate   = event.getEndDate() != null
                     ? event.getEndDate().toString() : null;
+            d.eventStatus    = event.getEventStatus(); // ✅ 추가
         }
         d.payAmount = payAmount;
         return d;
@@ -118,4 +120,6 @@ public class EventParticipationDto {
     public void setEventEndDate(String v)     { eventEndDate = v; }
     public Integer getPayAmount()             { return payAmount; }
     public void setPayAmount(Integer v)       { payAmount = v; }
+    public String getEventStatus()            { return eventStatus; } // ✅ 추가
+    public void setEventStatus(String v)      { eventStatus = v; }   // ✅ 추가
 }

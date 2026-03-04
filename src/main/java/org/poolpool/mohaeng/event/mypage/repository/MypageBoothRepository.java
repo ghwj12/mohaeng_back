@@ -23,18 +23,15 @@ public class MypageBoothRepository {
 
     /**
      * ✅ 부스 신청/관리 내역(유저 기준)
-     * - participation_booth -> host_booth -> event 조인
-     * - 마이페이지에서 필요한 event 요약정보까지 같이 반환
      */
     public List<BoothMypageResponse> findMyBooths(Long userId) {
-        // 💡 1. VIEW_STATUS 대신 순수 STATUS 반환
-        // 💡 2. WHERE 조건에 '취소'된 건 아예 제외
         String sql = "\n" +
                 "SELECT \n" +
                 "  pb.PCT_BOOTH_ID, pb.HOST_BOOTH_ID, pb.BOOTH_TITLE, pb.BOOTH_TOPIC, pb.BOOTH_COUNT, pb.TOTAL_PRICE,\n" +
-                "  pb.STATUS AS VIEW_STATUS,\n" + 
+                "  pb.STATUS AS VIEW_STATUS,\n" +
                 "  pb.CREATED_AT,\n" +
-                "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE\n" +
+                "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE,\n" +
+                "  e.EVENT_STATUS\n" +
                 "FROM participation_booth pb\n" +
                 "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
@@ -63,6 +60,7 @@ public class MypageBoothRepository {
                     .eventDescription(toStr(r[11]))
                     .startDate(toLd(r[12]))
                     .endDate(toLd(r[13]))
+                    .eventStatus(toStr(r[14]))
                     .build());
         }
         return out;
@@ -70,22 +68,22 @@ public class MypageBoothRepository {
 
     /**
      * ✅ 부스 관리(내가 주최한 행사에서 받은 부스)
-     * - event.host_id = 현재 로그인 사용자
-     * - 상태: 승인/반려면 '완료', 그 외는 '대기'
+     * ✅ 탈퇴(WITHDRAWAL) / 휴면(DORMANT) 계정 신청 내역 제외
      */
     public List<BoothMypageResponse> findReceivedBooths(Long hostUserId) {
-        // 💡 1. VIEW_STATUS 둔갑술 제거 (순수 STATUS 반환)
-        // 💡 2. WHERE 조건에 '취소'된 건 아예 제외
         String sql = "\n" +
                 "SELECT \n" +
                 "  pb.PCT_BOOTH_ID, pb.HOST_BOOTH_ID, pb.BOOTH_TITLE, pb.BOOTH_TOPIC, pb.BOOTH_COUNT, pb.TOTAL_PRICE,\n" +
                 "  pb.STATUS AS VIEW_STATUS,\n" +
                 "  pb.CREATED_AT,\n" +
-                "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE\n" +
+                "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, COALESCE(e.DESCRIPTION, e.SIMPLE_EXPLAIN) AS EVENT_DESC, e.START_DATE, e.END_DATE,\n" +
+                "  e.EVENT_STATUS\n" +
                 "FROM participation_booth pb\n" +
                 "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
                 "JOIN `event` e ON hb.EVENT_ID = e.EVENT_ID\n" +
+                "JOIN users u ON pb.USER_ID = u.USER_ID\n" + // ✅ 신청자 조인
                 "WHERE e.HOST_ID = ? AND pb.STATUS != '취소'\n" +
+                "  AND u.USER_STATUS NOT IN ('WITHDRAWAL', 'DORMANT')\n" + // ✅ 탈퇴/휴면 제외
                 "ORDER BY pb.CREATED_AT DESC";
 
         @SuppressWarnings("unchecked")
@@ -110,13 +108,14 @@ public class MypageBoothRepository {
                     .eventDescription(toStr(r[11]))
                     .startDate(toLd(r[12]))
                     .endDate(toLd(r[13]))
+                    .eventStatus(toStr(r[14]))
                     .build());
         }
         return out;
     }
 
     /**
-     * ✅ 신청서 상세: 주최자(해당 이벤트 host) 또는 신청자(pb.user_id)만 조회 가능
+     * ✅ 신청서 상세
      */
     public BoothApplicationDetailResponse findBoothDetail(Long userId, Long pctBoothId) {
         String sql = "\n" +
@@ -124,9 +123,7 @@ public class MypageBoothRepository {
                 "  pb.PCT_BOOTH_ID, pb.HOST_BOOTH_ID, pb.USER_ID, pb.HOMEPAGE_URL, pb.BOOTH_TITLE, pb.BOOTH_TOPIC,\n" +
                 "  pb.MAIN_ITEMS, pb.DESCRIPTION, pb.BOOTH_COUNT, pb.BOOTH_PRICE, pb.FACILITY_PRICE, pb.TOTAL_PRICE,\n" +
                 "  pb.STATUS, pb.CREATED_AT, pb.APPROVED_DATE,\n" +
-                // event
                 "  hb.EVENT_ID, e.TITLE, e.THUMBNAIL, e.START_DATE, e.END_DATE,\n" +
-                // applicant(user)
                 "  u.NAME, u.EMAIL, u.PHONE, u.BUSINESS_NUM\n" +
                 "FROM participation_booth pb\n" +
                 "JOIN host_booth hb ON pb.HOST_BOOTH_ID = hb.BOOTH_ID\n" +
@@ -172,7 +169,6 @@ public class MypageBoothRepository {
                 .applicantBusinessNum(toStr(r[23]))
                 .build();
 
-        // files
         List<BoothApplicationFileResponse> files = findBoothFiles(pctBoothId);
         return BoothApplicationDetailResponse.builder()
                 .pctBoothId(base.getPctBoothId())
@@ -207,7 +203,6 @@ public class MypageBoothRepository {
         String sql = "\n" +
                 "SELECT f.ORIGINAL_FILE_NAME, f.RENAME_FILE_NAME, f.SORT_ORDER\n" +
                 "FROM `file` f\n" +
-                // NOTE: 저장 로직에서 fileType이 'PBOOTH'로 저장되는 케이스가 있어 둘 다 호환
                 "WHERE f.PCT_BOOTH_ID = ? AND f.FILE_TYPE IN ('PBOOTH','P_BOOTH')\n" +
                 "ORDER BY f.SORT_ORDER ASC";
 
@@ -227,9 +222,6 @@ public class MypageBoothRepository {
         return out;
     }
 
-    /**
-     * ✅ 주최자 승인/반려
-     */
     public int updateBoothStatusAsHost(Long hostUserId, Long pctBoothId, String status) {
         String sql = "\n" +
                 "UPDATE participation_booth pb\n" +
@@ -245,12 +237,6 @@ public class MypageBoothRepository {
                 .executeUpdate();
     }
 
-
-    /**
-     * ✅ 주최자 승인/반려 (완화 버전)
-     * - 승인/반려/취소가 아닌 상태는 모두 '대기'로 보고 처리 가능
-     * - (예: '신청', '결제완료', 기타 커스텀 상태)
-     */
     public int updateBoothStatusAsHostRelaxed(Long hostUserId, Long pctBoothId, String status) {
         String sql = "\n" +
                 "UPDATE participation_booth pb\n" +
@@ -266,7 +252,6 @@ public class MypageBoothRepository {
                 .setParameter(3, hostUserId)
                 .executeUpdate();
     }
-
 
     private static Long toLong(Object v) {
         if (v == null) return null;
@@ -287,7 +272,6 @@ public class MypageBoothRepository {
     private static LocalDateTime toLdt(Object v) {
         if (v == null) return null;
         if (v instanceof Timestamp ts) return ts.toLocalDateTime();
-        // 일부 드라이버는 LocalDateTime으로 바로 줄 수도 있음
         if (v instanceof LocalDateTime ldt) return ldt;
         return null;
     }
