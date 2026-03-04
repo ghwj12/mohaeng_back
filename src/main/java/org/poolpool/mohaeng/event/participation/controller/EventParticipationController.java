@@ -48,8 +48,6 @@ public class EventParticipationController {
     private final PaymentRepository paymentRepository;
     private final EventRepository eventRepository;
     private final ObjectMapper objectMapper;
-
-    // 알림 서비스 주입
     private final NotificationService notificationService;
 
     @PersistenceContext
@@ -60,11 +58,6 @@ public class EventParticipationController {
 
     // ─────────────────────────────────────────────────────────────────────────
     // 부스 신청 생성
-    // POST /api/eventParticipation/submitBoothApply?eventId={eventId}
-    // consumes = multipart/form-data
-    // - data: JSON 문자열
-    // - files: 첨부파일 (optional)
-    // - orderId: 유료 결제 시 포함 (결제 성공 후 호출)
     // ─────────────────────────────────────────────────────────────────────────
 
     @PostMapping(value = "/submitBoothApply", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -76,9 +69,7 @@ public class EventParticipationController {
             @RequestParam(value = "orderId", required = false) String orderId) {
 
         log.info("[부스 신청] eventId={}, orderId={}", eventId, orderId);
-        log.info("[부스 신청] dataJson={}", dataJson);
 
-        // JSON 파싱
         BoothApplyRequestDto dto;
         try {
             dto = objectMapper.readValue(dataJson, BoothApplyRequestDto.class);
@@ -88,19 +79,15 @@ public class EventParticipationController {
                     .body(Map.of("message", "요청 데이터 형식이 올바르지 않습니다: " + e.getMessage()));
         }
 
-        // 유료 결제인 경우 orderId로 APPROVED 결제 확인
         PaymentEntity payment = null;
         if (orderId != null && !orderId.isBlank()) {
             payment = paymentRepository.findByPaymentKey(orderId).orElse(null);
-            if (payment == null) {
+            if (payment == null)
                 return ResponseEntity.badRequest().body(Map.of("message", "결제 정보를 찾을 수 없습니다."));
-            }
-            if (!"APPROVED".equals(payment.getPaymentStatus())) {
+            if (!"APPROVED".equals(payment.getPaymentStatus()))
                 return ResponseEntity.badRequest().body(Map.of("message", "결제가 완료되지 않았습니다."));
-            }
         }
 
-        // 1) ParticipationBoothEntity 저장
         ParticipationBoothEntity booth = new ParticipationBoothEntity();
         booth.setHostBoothId(dto.getHostBoothId());
         booth.setUserId(getCurrentUserId());
@@ -119,44 +106,32 @@ public class EventParticipationController {
         em.flush();
 
         Long pctBoothId = booth.getPctBoothId();
-        log.info("[부스 신청] pctBoothId={} 생성, status={}", pctBoothId, booth.getStatus());
 
-        // 부스 신청 알림(8): 행사 주최자에게
         try {
             EventEntity event = eventRepository.findById(eventId).orElse(null);
             Long hostId = (event != null && event.getHost() != null) ? event.getHost().getUserId() : null;
             Long applicantId = booth.getUserId();
-
             if (hostId != null && applicantId != null && !hostId.equals(applicantId)) {
                 notificationService.create(hostId, NotiTypeId.BOOTH_RECEIVER, eventId, null);
-                log.info("[BOOTH_NOTI] created type=8 hostId={} eventId={} pctBoothId={}",
-                        hostId, eventId, pctBoothId);
-            } else {
-                log.info("[BOOTH_NOTI] skipped type=8 hostId={} applicantId={} eventId={} pctBoothId={}",
-                        hostId, applicantId, eventId, pctBoothId);
             }
         } catch (Exception e) {
             log.error("[BOOTH_NOTI] failed type=8 eventId={} pctBoothId={}", eventId, pctBoothId, e);
         }
 
-        // 결제 엔티티에 pctBoothId 연결
         if (payment != null) {
             payment.setPctBoothId(pctBoothId);
             paymentRepository.save(payment);
         }
 
-        // 2) 부대시설 저장 + 재고 차감
         if (dto.getFacilities() != null) {
             for (BoothApplyRequestDto.FacilityItem fi : dto.getFacilities()) {
                 if (fi.getHostBoothFaciId() == null) continue;
-
                 ParticipationBoothFacilityEntity faci = new ParticipationBoothFacilityEntity();
                 faci.setHostBoothFaciId(fi.getHostBoothFaciId());
                 faci.setPctBoothId(pctBoothId);
                 faci.setFaciCount(fi.getFaciCount() != null ? fi.getFaciCount() : 1);
                 faci.setFaciPrice(fi.getFaciPrice() != null ? fi.getFaciPrice() : 0);
                 em.persist(faci);
-
                 em.createQuery(
                     "UPDATE HostFacilityEntity h " +
                     "SET h.remainCount = h.remainCount - :cnt " +
@@ -167,7 +142,6 @@ public class EventParticipationController {
             }
         }
 
-        // 3) 부스 재고 차감
         em.createQuery(
             "UPDATE HostBoothEntity h " +
             "SET h.remainCount = h.remainCount - 1 " +
@@ -175,13 +149,10 @@ public class EventParticipationController {
             .setParameter("id", dto.getHostBoothId())
             .executeUpdate();
 
-        // 4) 첨부파일 저장
         if (files != null && !files.isEmpty()) {
             File uploadDir = new File(pboothUploadPath);
             if (!uploadDir.exists()) uploadDir.mkdirs();
-
             EventEntity eventEntity = eventRepository.findById(eventId).orElse(null);
-
             String datePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
             for (MultipartFile file : files) {
                 if (file.isEmpty()) continue;
@@ -189,10 +160,8 @@ public class EventParticipationController {
                 String ext = (originalName != null && originalName.contains("."))
                         ? originalName.substring(originalName.lastIndexOf(".")) : "";
                 String saveName = datePart + "_" + UUID.randomUUID().toString().replace("-", "") + ext;
-
                 try {
                     file.transferTo(new File(uploadDir, saveName));
-
                     FileEntity fileEntity = FileEntity.builder()
                             .event(eventEntity)
                             .pctBooth(booth)
@@ -203,15 +172,12 @@ public class EventParticipationController {
                             .createdAt(LocalDateTime.now())
                             .build();
                     em.persist(fileEntity);
-
-                    log.info("[부스파일 저장] {} → {}", originalName, saveName);
                 } catch (IOException e) {
                     log.error("[부스파일 저장 실패] {}", originalName, e);
                 }
             }
         }
 
-        log.info("[부스 신청 완료] pctBoothId={}", pctBoothId);
         return ResponseEntity.ok(Map.of("pctBoothId", pctBoothId));
     }
 
@@ -239,6 +205,31 @@ public class EventParticipationController {
                 return ResponseEntity.badRequest().body(Map.of("message", "결제 정보를 찾을 수 없습니다."));
             if (!"APPROVED".equals(payment.getPaymentStatus()))
                 return ResponseEntity.badRequest().body(Map.of("message", "결제가 완료되지 않았습니다. 잠시 후 다시 시도해주세요."));
+        }
+
+        // ✅ 날짜별 정원 체크
+        if (formData != null && formData.get("pctDate") != null) {
+            String pctDateStr = String.valueOf(formData.get("pctDate")); // "2026-02-02"
+            EventEntity event = eventRepository.findById(eventId).orElse(null);
+
+            if (event != null && event.getCapacity() != null) {
+                long dateCount = ((Number) em.createNativeQuery(
+                        "SELECT COUNT(*) FROM event_participation " +
+                        "WHERE event_id = :eventId " +
+                        "  AND DATE(pct_date) = :pctDate " +
+                        "  AND pct_status NOT IN ('취소', '참여삭제')")
+                        .setParameter("eventId", eventId)
+                        .setParameter("pctDate", pctDateStr)
+                        .getSingleResult()).longValue();
+
+                if (dateCount >= event.getCapacity()) {
+                    log.warn("[정원 마감] eventId={}, date={}, count={}, capacity={}",
+                            eventId, pctDateStr, dateCount, event.getCapacity());
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("message",
+                                    pctDateStr + " 날짜의 정원이 마감되었습니다. 다른 날짜를 선택해주세요."));
+                }
+            }
         }
 
         EventParticipationEntity pct = new EventParticipationEntity();
@@ -296,10 +287,8 @@ public class EventParticipationController {
             .setParameter("pctId", pctId)
             .setParameter("userId", userId)
             .executeUpdate();
-
         if (updated == 0)
             return ResponseEntity.badRequest().body(Map.of("message", "삭제할 수 없는 참여 내역입니다."));
-
         return ResponseEntity.ok(Map.of("message", "삭제되었습니다."));
     }
 
@@ -319,53 +308,33 @@ public class EventParticipationController {
         return ResponseEntity.ok(list.stream().map(BoothListResponseDto::fromEntity).toList());
     }
 
-    // 승인 + 알림(9)
     @PutMapping("/approveBooth")
     @Transactional
     public ResponseEntity<?> approveBooth(@RequestParam("pctBoothId") Long pctBoothId) {
         participationService.approveBooth(pctBoothId);
-
         try {
             ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId).orElse(null);
             Long eventId = participationRepository.findEventIdByPctBoothId(pctBoothId);
-
-            if (booth != null && booth.getUserId() != null && eventId != null) {
+            if (booth != null && booth.getUserId() != null && eventId != null)
                 notificationService.create(booth.getUserId(), NotiTypeId.BOOTH_ACCEPT, eventId, null);
-                log.info("[BOOTH_NOTI] created type=9 applicantId={} eventId={} pctBoothId={}",
-                        booth.getUserId(), eventId, pctBoothId);
-            } else {
-                log.info("[BOOTH_NOTI] skipped type=9 boothNull={} eventId={} pctBoothId={}",
-                        (booth == null), eventId, pctBoothId);
-            }
         } catch (Exception e) {
             log.error("[BOOTH_NOTI] failed type=9 pctBoothId={}", pctBoothId, e);
         }
-
         return ResponseEntity.ok(Map.of("message", "부스 신청이 승인되었습니다."));
     }
 
-    // 반려 + 알림(10)   (요청대로 10번만 발송)
     @PutMapping("/rejectBooth")
     @Transactional
     public ResponseEntity<?> rejectBooth(@RequestParam("pctBoothId") Long pctBoothId) {
         participationService.rejectBooth(pctBoothId);
-
         try {
             ParticipationBoothEntity booth = participationRepository.findBoothById(pctBoothId).orElse(null);
             Long eventId = participationRepository.findEventIdByPctBoothId(pctBoothId);
-
-            if (booth != null && booth.getUserId() != null && eventId != null) {
+            if (booth != null && booth.getUserId() != null && eventId != null)
                 notificationService.create(booth.getUserId(), NotiTypeId.BOOTH_REJECT, eventId, null);
-                log.info("[BOOTH_NOTI] created type=10 applicantId={} eventId={} pctBoothId={}",
-                        booth.getUserId(), eventId, pctBoothId);
-            } else {
-                log.info("[BOOTH_NOTI] skipped type=10 boothNull={} eventId={} pctBoothId={}",
-                        (booth == null), eventId, pctBoothId);
-            }
         } catch (Exception e) {
             log.error("[BOOTH_NOTI] failed type=10 pctBoothId={}", pctBoothId, e);
         }
-
         return ResponseEntity.ok(Map.of("message", "부스 신청이 반려되었습니다."));
     }
 

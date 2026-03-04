@@ -26,6 +26,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -35,6 +37,10 @@ public class EventServiceImpl implements EventService {
     private final EventRepository eventRepository;
     private final HostBoothRepository hostBoothRepository;
     private final HostFacilityRepository hostFacilityRepository;
+
+    // ✅ 날짜별 신청자 수 조회를 위해 EntityManager 직접 사용
+    @PersistenceContext
+    private EntityManager em;
 
     @Override
     @Transactional
@@ -53,12 +59,36 @@ public class EventServiceImpl implements EventService {
 
         EventDto eventDto = EventDto.fromEntity(event);
 
-        // 현재 참여자 수 주입 (결제대기 포함 — 자리 확보 목적)
+        // 전체 참여자 수 주입 (결제대기 포함 — 자리 확보 목적)
         Integer participantCount = eventRepository.countParticipantsByEventId(eventId);
         eventDto.setCurrentParticipantCount(participantCount != null ? participantCount : 0);
 
+        // ✅ 날짜별 신청자 수 주입
+        // key: "2026-02-01"  value: 해당 날짜 신청 수 (취소/참여삭제 제외)
+        Map<String, Integer> dailyCounts = new LinkedHashMap<>();
+        try {
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = em.createNativeQuery(
+                    "SELECT DATE(pct_date) AS pct_day, COUNT(*) AS cnt " +
+                    "FROM event_participation " +
+                    "WHERE event_id = :eventId " +
+                    "  AND pct_status NOT IN ('취소', '참여삭제') " +
+                    "GROUP BY DATE(pct_date)")
+                    .setParameter("eventId", eventId)
+                    .getResultList();
+
+            for (Object[] row : rows) {
+                String date = String.valueOf(row[0]); // "2026-02-01"
+                int count   = ((Number) row[1]).intValue();
+                dailyCounts.put(date, count);
+            }
+        } catch (Exception e) {
+            // 조회 실패 시 빈 맵 유지 (화면은 정상 노출)
+        }
+        eventDto.setDailyParticipantCounts(dailyCounts);
+
         List<String> detailImages = new ArrayList<>();
-        List<String> boothImages = new ArrayList<>();
+        List<String> boothImages  = new ArrayList<>();
 
         if (event.getEventFiles() != null) {
             for (FileEntity file : event.getEventFiles()) {
@@ -73,7 +103,7 @@ public class EventServiceImpl implements EventService {
         eventDto.setDetailImagePaths(detailImages);
         eventDto.setBoothFilePaths(boothImages);
 
-        List<HostBoothEntity> booths = hostBoothRepository.findByEventId(eventId);
+        List<HostBoothEntity>    booths     = hostBoothRepository.findByEventId(eventId);
         List<HostFacilityEntity> facilities = hostFacilityRepository.findByEventId(eventId);
 
         return EventDetailDto.builder()
@@ -88,13 +118,6 @@ public class EventServiceImpl implements EventService {
                 .build();
     }
 
-    /**
-     * ✅ 문제 6: 행사 게시판 목록 — 오늘 날짜와 가까운 순으로 정렬
-     *
-     * 정렬 기준:
-     *   1) 진행 예정/진행중 행사 먼저 (start_date >= today)
-     *   2) 각 그룹 내에서 오늘과의 날짜 차이 오름차순 (ABS(DATEDIFF))
-     */
     @Override
     @Transactional(readOnly = true)
     public Page<EventDto> searchEvents(
@@ -102,8 +125,6 @@ public class EventServiceImpl implements EventService {
             Integer categoryId, List<String> topicIds,
             boolean checkFree, boolean hideClosed, String eventStatus, Pageable pageable) {
 
-        // ✅ 문제 6: Pageable의 Sort는 무시하고 날짜 근접 정렬 네이티브 쿼리 사용
-        // sort 정보를 제거한 Pageable (native query에서 ORDER BY 직접 지정)
         Pageable unsortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
 
         Long regionMin = null, regionMax = null;
@@ -121,7 +142,6 @@ public class EventServiceImpl implements EventService {
         LocalDate today = LocalDate.now();
         String statusParam = (eventStatus == null || eventStatus.isBlank()) ? null : eventStatus;
 
-        // 주제 필터가 없는 경우
         if (topicIds == null || topicIds.isEmpty()) {
             Page<EventEntity> eventPage = eventRepository.searchEventsOrderByDateProximity(
                     emptyToNull(keyword), regionMin, regionMax,
@@ -131,7 +151,6 @@ public class EventServiceImpl implements EventService {
             return eventPage.map(EventDto::fromEntity);
         }
 
-        // 주제 필터가 있는 경우: 주제별로 조회 후 병합 (순서 유지)
         Map<Long, EventEntity> mergedMap = new LinkedHashMap<>();
         for (String topicId : topicIds) {
             String trimmed = topicId.trim();
@@ -151,7 +170,7 @@ public class EventServiceImpl implements EventService {
         List<EventEntity> allMatched = new ArrayList<>(mergedMap.values());
         int total = allMatched.size();
         int start = (int) pageable.getOffset();
-        int end = Math.min(start + pageable.getPageSize(), total);
+        int end   = Math.min(start + pageable.getPageSize(), total);
         List<EventEntity> pageContent = (start >= total) ? new ArrayList<>() : allMatched.subList(start, end);
 
         return new PageImpl<>(pageContent, pageable, total).map(EventDto::fromEntity);

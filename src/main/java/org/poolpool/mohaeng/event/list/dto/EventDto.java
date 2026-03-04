@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
 import org.poolpool.mohaeng.event.list.entity.FileEntity;
@@ -34,7 +35,7 @@ public class EventDto {
     private EventRegionDto region;
     private Integer price;
     private Integer capacity;
-    private Integer currentParticipantCount; // ✅ Issue 3: 현재 참여자 수
+    private Integer currentParticipantCount;
     private Integer views;
     private String eventStatus;
     private String lotNumberAdr;
@@ -48,6 +49,9 @@ public class EventDto {
     private String thumbnail;
     private List<String> detailImagePaths;
     private List<String> boothFilePaths;
+
+    // ✅ 날짜별 신청자 수 (key: "2026-02-01", value: 신청 수)
+    private Map<String, Integer> dailyParticipantCounts;
 
     public static EventDto fromEntity(EventEntity entity) {
         if (entity == null) return null;
@@ -81,7 +85,6 @@ public class EventDto {
                 .hasFacility(entity.getHasFacility())
                 .price(entity.getPrice())
                 .capacity(entity.getCapacity())
-                // currentParticipantCount는 서비스에서 별도 주입
                 .views(entity.getViews())
                 .eventStatus(entity.getEventStatus())
                 .lotNumberAdr(entity.getLotNumberAdr())
