@@ -117,8 +117,8 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
 
     // 지역별 행사 수
     @Query("SELECT new org.poolpool.mohaeng.event.list.dto.EventRegionCountDto(e.region.regionId, COUNT(e)) " +
-           "FROM EventEntity e WHERE e.eventStatus NOT IN ('DELETED','행사삭제') GROUP BY e.region.regionId")
-    List<EventRegionCountDto> countEventsByRegion();
+    	       "FROM EventEntity e WHERE e.eventStatus NOT IN ('DELETED','행사삭제','행사종료') GROUP BY e.region.regionId")
+    	List<EventRegionCountDto> countEventsByRegion();
 
     // ✅ 문제 4: 결제대기 상태도 정원에 포함 (자리 확보), 단 참여 완료 수는 결제완료 이상만
     @Query(value = "SELECT COUNT(*) FROM event_participation " +
