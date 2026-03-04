@@ -125,6 +125,24 @@ public class EventParticipationController {
         Long pctBoothId = booth.getPctBoothId();
         log.info("[부스 신청] pctBoothId={} 생성, status={}", pctBoothId, booth.getStatus());
 
+        //  (추가) 부스 신청 알림(8): 행사 주최자에게
+        try {
+            EventEntity event = eventRepository.findById(eventId).orElse(null);
+            Long hostId = (event != null && event.getHost() != null) ? event.getHost().getUserId() : null;
+            Long applicantId = booth.getUserId();
+
+            if (hostId != null && applicantId != null && !hostId.equals(applicantId)) {
+                notificationService.create(hostId, NotiTypeId.BOOTH_RECEIVER, eventId, null);
+                log.info("[BOOTH_NOTI] created type=8 hostId={} eventId={} pctBoothId={}",
+                        hostId, eventId, pctBoothId);
+            } else {
+                log.info("[BOOTH_NOTI] skipped type=8 hostId={} applicantId={} eventId={} pctBoothId={}",
+                        hostId, applicantId, eventId, pctBoothId);
+            }
+        } catch (Exception e) {
+            log.error("[BOOTH_NOTI] failed type=8 eventId={} pctBoothId={}", eventId, pctBoothId, e);
+        }
+
         // 결제 엔티티에 pctBoothId 연결
         if (payment != null) {
             payment.setPctBoothId(pctBoothId);
@@ -166,7 +184,7 @@ public class EventParticipationController {
             File uploadDir = new File(pboothUploadPath);
             if (!uploadDir.exists()) uploadDir.mkdirs();
 
-            // ✅ FileEntity.event_id NOT NULL → event 조회 필요
+            //  FileEntity.event_id NOT NULL → event 조회 필요
             EventEntity eventEntity = eventRepository.findById(eventId).orElse(null);
 
             String datePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
@@ -179,7 +197,7 @@ public class EventParticipationController {
                 try {
                     file.transferTo(new File(uploadDir, saveName));
                     FileEntity fileEntity = FileEntity.builder()
-                            .event(eventEntity)   // ✅ event_id NOT NULL 해결
+                            .event(eventEntity)   //  event_id NOT NULL 해결
                             .pctBooth(booth)
                             .fileType("P_BOOTH")
                             .originalFileName(originalName)
