@@ -155,7 +155,7 @@ public class PaymentServiceImpl implements PaymentService {
                 p.setCanceledAt(LocalDateTime.now());
 
                 if (newCanceled >= total) {
-                    p.setPaymentStatus("CANCELLED");       // 전액 환불
+                    p.setPaymentStatus("CANCELED");       // 전액 환불
                 } else {
                     p.setPaymentStatus("PARTIAL_CANCEL");  // 부분 환불
                 }
