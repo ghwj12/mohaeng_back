@@ -136,11 +136,18 @@ public class AdminReportServiceImpl implements AdminReportService {
             }
         }
 
-        //  이벤트 상태는 REPORT_DELETED
+        // 이벤트 상태는 REPORT_DELETED
         event.changeStatusToReportDeleted();
 
-        //  신고 결과는 APPROVED (3개만)
+        // 신고 결과는 APPROVED
         r.setReportResult(ReportResult.APPROVED);
+
+        // (핵심) 여기서 DB에 확실히 반영되게 flush
+        // - 이 줄이 없으면, 아래 Modifying 쿼리/다른 로직 흐름에서 영속성 컨텍스트가 꼬일 때
+        //   값이 기대대로 DB에 안 박히는 상황이 생길 수 있음
+        eventRepository.save(event);
+        reportRepository.save(r);
+        em.flush();
 
         // 같은 이벤트 다른 미처리 신고들 반려 정리
         reportRepository.rejectOtherPendings(r.getEventId(), r.getReportId());
