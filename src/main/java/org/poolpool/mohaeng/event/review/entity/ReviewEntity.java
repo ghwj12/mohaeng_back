@@ -5,18 +5,7 @@ import java.time.LocalDateTime;
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
 import org.poolpool.mohaeng.user.entity.UserEntity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
-import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.*;
 
 @Entity
 @Table(
@@ -49,7 +38,8 @@ public class ReviewEntity {
   @Column(nullable = false)
   private int ratingMood;
 
-  @Column(nullable = false, length = 1000)
+  //  기존 nullable=false → nullable=true
+  @Column(nullable = true, length = 1000)
   private String content;
 
   @Column(nullable = false)
@@ -69,20 +59,26 @@ public class ReviewEntity {
     this.updatedAt = LocalDateTime.now();
   }
 
-  // getters/setters
   public Long getReviewId() { return reviewId; }
+
   public EventEntity getEvent() { return event; }
   public void setEvent(EventEntity event) { this.event = event; }
+
   public UserEntity getUser() { return user; }
   public void setUser(UserEntity user) { this.user = user; }
+
   public int getRatingContent() { return ratingContent; }
   public void setRatingContent(int ratingContent) { this.ratingContent = ratingContent; }
+
   public int getRatingProgress() { return ratingProgress; }
   public void setRatingProgress(int ratingProgress) { this.ratingProgress = ratingProgress; }
+
   public int getRatingMood() { return ratingMood; }
   public void setRatingMood(int ratingMood) { this.ratingMood = ratingMood; }
+
   public String getContent() { return content; }
   public void setContent(String content) { this.content = content; }
+
   public LocalDateTime getCreatedAt() { return createdAt; }
   public LocalDateTime getUpdatedAt() { return updatedAt; }
 }

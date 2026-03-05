@@ -39,6 +39,13 @@ public class ReviewServiceImpl implements ReviewService {
     this.reviewRepository = reviewRepository;
   }
 
+  //  공백/빈문자열 -> null 로 정리
+  private String normalizeContent(String content) {
+    if (content == null) return null;
+    String t = content.trim();
+    return t.isEmpty() ? null : t;
+  }
+
   private ArrayList<MyPageReviewItemDto> toMyPageList(Page<ReviewEntity> page) {
     ArrayList<MyPageReviewItemDto> list = new ArrayList<>();
     for (ReviewEntity e : page.getContent()) list.add(MyPageReviewItemDto.fromEntity(e));
@@ -76,7 +83,7 @@ public class ReviewServiceImpl implements ReviewService {
   }
 
   /**
-   * ✅ 참여완료 기준(추천):
+   *  참여완료 기준(추천):
    * 1) 참여 레코드 존재 + pctStatus = '결제완료'
    * 2) 행사 종료(endDate/endTime 지남)
    */
@@ -118,7 +125,7 @@ public class ReviewServiceImpl implements ReviewService {
       throw new EntityNotFoundException("존재하지 않는 이벤트입니다.");
     }
 
-    // ✅ 참여완료(행사 종료 + 결제완료)만 리뷰 작성 가능
+    //  참여완료(행사 종료 + 결제완료)만 리뷰 작성 가능
     if (!canWriteReview(userId, eventId)) {
       throw new IllegalStateException("참여완료한 행사만 리뷰를 작성할 수 있습니다.");
     }
@@ -136,7 +143,9 @@ public class ReviewServiceImpl implements ReviewService {
     e.setRatingContent(request.getRatingContent());
     e.setRatingProgress(request.getRatingProgress());
     e.setRatingMood(request.getRatingMood());
-    e.setContent(request.getContent());
+
+    //  공백이면 null 저장
+    e.setContent(normalizeContent(request.getContent()));
 
     ReviewEntity saved = reviewRepository.save(e);
     log.info("Review created. reviewId={}, userId={}, eventId={}", saved.getReviewId(), userId, eventId);
@@ -152,7 +161,13 @@ public class ReviewServiceImpl implements ReviewService {
     e.setRatingContent(request.getRatingContent());
     e.setRatingProgress(request.getRatingProgress());
     e.setRatingMood(request.getRatingMood());
-    e.setContent(request.getContent());
+
+    //  content가 "의미있는 값"일 때만 반영 (null/공백이면 기존 유지)
+    String normalized = normalizeContent(request.getContent());
+    if (normalized != null) {
+      e.setContent(normalized);
+    }
+
     return true;
   }
 
