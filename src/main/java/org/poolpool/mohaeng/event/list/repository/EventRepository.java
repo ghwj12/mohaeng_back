@@ -36,7 +36,7 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
         "  (:categoryId IS NULL OR e.category_id = :categoryId) AND " +
         "  (:checkFree = false OR e.price = 0) AND " +
         "  (:hideClosed = false OR e.end_date >= :today) AND " +
-        "  e.event_status NOT IN ('DELETED', '행사삭제') AND " +
+        "  e.event_status NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted', '행사삭제') AND " +
         "  (:eventStatus IS NULL OR e.event_status = :eventStatus) " +
         "ORDER BY " +
         "  CASE WHEN e.start_date >= :today THEN 0 ELSE 1 END ASC, " +
@@ -52,7 +52,7 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
         "  (:categoryId IS NULL OR e.category_id = :categoryId) AND " +
         "  (:checkFree = false OR e.price = 0) AND " +
         "  (:hideClosed = false OR e.end_date >= :today) AND " +
-        "  e.event_status NOT IN ('DELETED', '행사삭제') AND " +
+        "  e.event_status NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted', '행사삭제') AND " +
         "  (:eventStatus IS NULL OR e.event_status = :eventStatus)",
         nativeQuery = true)
     Page<EventEntity> searchEventsOrderByDateProximity(
@@ -80,7 +80,7 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
         "  (:categoryId IS NULL OR e.category_id = :categoryId) AND " +
         "  (:checkFree = false OR e.price = 0) AND " +
         "  (:hideClosed = false OR e.end_date >= :today) AND " +
-        "  e.event_status NOT IN ('DELETED', '행사삭제') AND " +
+        "  e.event_status NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted', '행사삭제') AND " +
         "  (:eventStatus IS NULL OR e.event_status = :eventStatus) AND " +
         "  CONCAT(',', e.topic_ids, ',') LIKE CONCAT('%,', :topicId, ',%') " +
         "ORDER BY " +
@@ -97,7 +97,7 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
         "  (:categoryId IS NULL OR e.category_id = :categoryId) AND " +
         "  (:checkFree = false OR e.price = 0) AND " +
         "  (:hideClosed = false OR e.end_date >= :today) AND " +
-        "  e.event_status NOT IN ('DELETED', '행사삭제') AND " +
+        "  e.event_status NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted', '행사삭제') AND " +
         "  (:eventStatus IS NULL OR e.event_status = :eventStatus) AND " +
         "  CONCAT(',', e.topic_ids, ',') LIKE CONCAT('%,', :topicId, ',%')",
         nativeQuery = true)
@@ -117,7 +117,7 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
 
     // 지역별 행사 수
     @Query("SELECT new org.poolpool.mohaeng.event.list.dto.EventRegionCountDto(e.region.regionId, COUNT(e)) " +
-    	       "FROM EventEntity e WHERE e.eventStatus NOT IN ('DELETED','행사삭제','행사종료') GROUP BY e.region.regionId")
+    	       "FROM EventEntity e WHERE e.eventStatus NOT IN ('DELETED','REPORT_DELETED','report_deleted','행사삭제','행사종료') GROUP BY e.region.regionId")
     	List<EventRegionCountDto> countEventsByRegion();
 
     // ✅ 문제 4: 결제대기 상태도 정원에 포함 (자리 확보), 단 참여 완료 수는 결제완료 이상만
@@ -145,12 +145,16 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
         "  WHERE DATE_ADD(e2.start_date, INTERVAL n.n DAY) <= e2.end_date " +
         ") d ON e.event_id = d.event_id " +
         "WHERE e.region_id BETWEEN :regionMin AND :regionMax " +
-        "AND e.event_status NOT IN ('DELETED') " +
+        "AND e.event_status NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted') " +
         "GROUP BY DATE(d.date) ORDER BY DATE(d.date)",
         nativeQuery = true)
     List<EventDailyCountDto> countDailyEventsByRegion(
             @Param("regionMin") Long regionMin,
             @Param("regionMax") Long regionMax);
+
+    // 스케줄러 전용 — 상태 보존 대상 제외하고 조회
+    @Query("SELECT e FROM EventEntity e WHERE e.eventStatus NOT IN ('DELETED', 'report_deleted', 'REPORT_DELETED', '행사삭제')")
+    List<EventEntity> findAllForScheduler();
 
     boolean existsByHost_UserIdAndEventStatusNotIn(Long hostId, List<String> statuses);
 }

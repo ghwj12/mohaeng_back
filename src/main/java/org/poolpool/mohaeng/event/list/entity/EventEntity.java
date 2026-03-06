@@ -1,15 +1,12 @@
 package org.poolpool.mohaeng.event.list.entity;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
-
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.poolpool.mohaeng.user.entity.UserEntity;
-
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -21,7 +18,6 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class EventEntity {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long eventId;
@@ -75,7 +71,9 @@ public class EventEntity {
     @Column(nullable = false)
     private Integer views;
 
-    @Column(length = 20)
+    // ✅ Lombok @Setter 생성 차단 — 커스텀 setter로만 변경 가능
+    @Setter(AccessLevel.NONE)
+    @Column(length = 50)
     private String eventStatus;
 
     private String lotNumberAdr;
@@ -97,6 +95,20 @@ public class EventEntity {
     @Builder.Default
     private List<FileEntity> eventFiles = new ArrayList<>();
 
+    // ✅ report_deleted 상태는 절대 덮어쓸 수 없음
+    public void setEventStatus(String newStatus) {
+        if (isReportDeleted(this.eventStatus)) {
+            return; // report_deleted 이면 어떤 값으로도 변경 불가
+        }
+        this.eventStatus = newStatus;
+    }
+
+    private boolean isReportDeleted(String status) {
+        if (status == null) return false;
+        return status.toLowerCase().contains("report_deleted")
+            || status.equalsIgnoreCase("report_deleted");
+    }
+
     public void changeStatusToHostDeleted() {
         this.eventStatus = "행사삭제";
     }
@@ -105,9 +117,9 @@ public class EventEntity {
         this.eventStatus = "DELETED";
     }
 
-    //  추가: 신고 승인으로 삭제된 이벤트
+    // 신고 승인으로 삭제 — 직접 필드에 쓰므로 setter 우회 없이 안전
     public void changeStatusToReportDeleted() {
-        this.eventStatus = "REPORT_DELETED";
+        this.eventStatus = "report_deleted";
     }
 
     public void updateCategoryAndRegion(EventCategoryEntity category, EventRegionEntity region) {

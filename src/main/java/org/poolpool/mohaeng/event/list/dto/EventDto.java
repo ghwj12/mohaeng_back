@@ -50,7 +50,7 @@ public class EventDto {
     private List<String> detailImagePaths;
     private List<String> boothFilePaths;
 
-    // ✅ 날짜별 신청자 수 (key: "2026-02-01", value: 신청 수)
+    // 날짜별 신청자 수 (key: "2026-02-01", value: 신청 수)
     private Map<String, Integer> dailyParticipantCounts;
 
     public static EventDto fromEntity(EventEntity entity) {
@@ -121,7 +121,6 @@ public class EventDto {
                 .price(this.price)
                 .capacity(this.capacity)
                 .thumbnail(this.thumbnail)
-                .eventStatus(this.eventStatus)
                 .lotNumberAdr(this.lotNumberAdr)
                 .detailAdr(this.detailAdr)
                 .zipCode(this.zipCode)
@@ -130,9 +129,21 @@ public class EventDto {
                 .category(this.category != null ? this.category.toEntity() : null)
                 .region(this.region != null ? this.region.toEntity() : null)
                 .createdAt(this.createdAt != null ? this.createdAt : LocalDateTime.now())
-                .eventStatus(calculateEventStatus())
+                // 수동 삭제 상태는 날짜 재계산 없이 그대로 보존
+                .eventStatus(shouldPreserveStatus(this.eventStatus)
+                        ? this.eventStatus
+                        : calculateEventStatus())
                 .views(this.views != null ? this.views : 0)
                 .build();
+    }
+
+    // DELETED, REPORT_DELETED, 행사삭제 등 수동으로 설정된 상태는 덮어쓰지 않음
+    private boolean shouldPreserveStatus(String status) {
+        if (status == null) return false;
+        String s = status.toLowerCase();
+        return s.equals("deleted")
+            || s.equals("report_deleted")
+            || s.equals("행사삭제");
     }
 
     private String calculateEventStatus() {

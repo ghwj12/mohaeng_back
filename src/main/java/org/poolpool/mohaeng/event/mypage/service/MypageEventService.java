@@ -25,7 +25,7 @@ public class MypageEventService {
     public MyEventsResponse getMyCreatedEvents(Long userId, int page, int size) {
         PageRequest pr = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<org.poolpool.mohaeng.event.list.entity.EventEntity> p =
-                eventRepository.findByHost_UserIdAndEventStatusNotIn(userId, List.of("DELETED", "행사삭제"), pr);
+                eventRepository.findByHost_UserIdAndEventStatusNotIn(userId, List.of("DELETED", "REPORT_DELETED", "report_deleted", "행사삭제"), pr);
 
         List<EventDto> items = p.getContent().stream().map(EventDto::fromEntity).toList();
 

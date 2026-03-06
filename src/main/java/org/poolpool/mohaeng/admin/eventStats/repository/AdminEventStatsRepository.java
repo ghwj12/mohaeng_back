@@ -15,7 +15,7 @@ public interface AdminEventStatsRepository extends JpaRepository<EventEntity, Lo
 
     // ── 1. 필터링된 행사 목록 (페이징) ──
     @Query("SELECT e FROM EventEntity e WHERE " +
-           "e.eventStatus != 'DELETED' AND " +
+           "e.eventStatus NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted') AND " +
            "(:keyword IS NULL OR e.title LIKE CONCAT('%',:keyword,'%') OR e.simpleExplain LIKE CONCAT('%',:keyword,'%')) AND " +
            "(:categoryId IS NULL OR e.category.categoryId = :categoryId) AND " +
            "(:status IS NULL OR e.eventStatus = :status) AND " +
@@ -42,7 +42,7 @@ public interface AdminEventStatsRepository extends JpaRepository<EventEntity, Lo
     @Query("SELECT new org.poolpool.mohaeng.admin.eventStats.dto.AdminEventStatsDto$MonthlyStatsResponse(" +
            "MONTH(e.startDate), COUNT(e)) " +
            "FROM EventEntity e " +
-           "WHERE YEAR(e.startDate) = :year AND e.eventStatus != 'DELETED' " +
+           "WHERE YEAR(e.startDate) = :year AND e.eventStatus NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted') " +
            "GROUP BY MONTH(e.startDate) ORDER BY MONTH(e.startDate)")
     List<AdminEventStatsDto.MonthlyStatsResponse> countByMonth(@Param("year") int year);
 
