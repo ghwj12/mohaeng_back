@@ -24,8 +24,6 @@ import lombok.RequiredArgsConstructor;
 public class AdminEventStatsServiceImpl implements AdminEventStatsService {
 
     private final AdminEventStatsRepository repository;
-
-    // ✅ 문제 3: 실제 결제 기반 수익 계산용
     private final PaymentRepository paymentRepository;
 
     // ── 행사 목록 (페이징 + 필터링) ──
@@ -97,7 +95,7 @@ public class AdminEventStatsServiceImpl implements AdminEventStatsService {
         Long wishCountRaw = repository.countWishlistByEventId(eventId);
         long wishCount = wishCountRaw != null ? wishCountRaw : 0L;
 
-        // ✅ 문제 3: 수익은 실제 APPROVED 결제 합산 (환불된 건 제외됨)
+        // 수익 (실제 APPROVED 결제 합산)
         Long participantRevenueRaw = paymentRepository.sumApprovedParticipantRevenue(eventId);
         long participantRevenue = participantRevenueRaw != null ? participantRevenueRaw : 0L;
 
@@ -127,6 +125,15 @@ public class AdminEventStatsServiceImpl implements AdminEventStatsService {
                 String raw   = String.valueOf(row[0]);
                 String label = ageLabels.getOrDefault(raw, raw);
                 ageGroupCounts.put(label, ((Number) row[1]).longValue());
+            }
+        }
+
+        // ✅ 유입경로
+        List<Object[]> rootRows = repository.countRootByEventId(eventId);
+        Map<String, Long> rootCounts = new HashMap<>();
+        for (Object[] row : rootRows) {
+            if (row[0] != null && !String.valueOf(row[0]).isBlank()) {
+                rootCounts.put(String.valueOf(row[0]), ((Number) row[1]).longValue());
             }
         }
 
@@ -168,7 +175,29 @@ public class AdminEventStatsServiceImpl implements AdminEventStatsService {
                 .maleCount(maleCount)
                 .femaleCount(femaleCount)
                 .ageGroupCounts(ageGroupCounts)
+                .rootCounts(rootCounts)   // ✅ 추가
                 .build();
+    }
+
+    // ── ✅ 참여자 목록 (페이징) ──
+    @Override
+    public Page<AdminEventStatsDto.ParticipantListResponse> getEventParticipants(Long eventId, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        return repository.findParticipantsByEventId(eventId, pageable)
+                .map(row -> AdminEventStatsDto.ParticipantListResponse.builder()
+                        .participationId(row[0] != null ? ((Number) row[0]).longValue() : null)
+                        .name(row[1] != null ? String.valueOf(row[1]) : null)
+                        .email(row[2] != null ? String.valueOf(row[2]) : null)
+                        .phone(row[3] != null ? String.valueOf(row[3]) : null)
+                        .pctGender(row[4] != null ? String.valueOf(row[4]) : null)
+                        .pctAgeGroup(row[5] != null ? String.valueOf(row[5]) : null)
+                        .pctDate(row[6] != null ? String.valueOf(row[6]) : null)
+                        .pctJob(row[7] != null ? String.valueOf(row[7]) : null)
+                        .pctGroup(row[8] != null ? String.valueOf(row[8]) : null)
+                        .pctRank(row[9] != null ? String.valueOf(row[9]) : null)
+                        .pctRoot(row[10] != null ? String.valueOf(row[10]) : null)
+                        .pctIntroduce(row[11] != null ? String.valueOf(row[11]) : null)
+                        .build());
     }
 
     private String emptyToNull(String s) {

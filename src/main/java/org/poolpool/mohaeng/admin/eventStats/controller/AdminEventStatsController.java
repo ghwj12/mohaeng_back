@@ -21,19 +21,18 @@ public class AdminEventStatsController {
     private final AdminEventStatsService service;
 
     // ── 행사 목록 (페이징 + 필터) ──
-    // GET /api/admin/eventstats/events?keyword=&categoryId=&status=&regionId=&startDate=&endDate=&checkFree=&hideClosed=&page=0&size=10
     @GetMapping("/events")
     public ResponseEntity<Page<AdminEventStatsDto.EventListResponse>> getEventList(
-        @RequestParam(name = "keyword", required = false) String keyword,
+        @RequestParam(name = "keyword",    required = false) String keyword,
         @RequestParam(name = "categoryId", required = false) Integer categoryId,
-        @RequestParam(name = "status", required = false) String status,
-        @RequestParam(name = "regionId", required = false) Long regionId,
-        @RequestParam(name = "startDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-        @RequestParam(name = "endDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
-        @RequestParam(name = "checkFree", defaultValue = "false") boolean checkFree,
+        @RequestParam(name = "status",     required = false) String status,
+        @RequestParam(name = "regionId",   required = false) Long regionId,
+        @RequestParam(name = "startDate",  required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+        @RequestParam(name = "endDate",    required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+        @RequestParam(name = "checkFree",  defaultValue = "false") boolean checkFree,
         @RequestParam(name = "hideClosed", defaultValue = "false") boolean hideClosed,
-        @RequestParam(name = "page", defaultValue = "0") int page,
-        @RequestParam(name = "size", defaultValue = "10") int size
+        @RequestParam(name = "page",       defaultValue = "0") int page,
+        @RequestParam(name = "size",       defaultValue = "10") int size
     ) {
         return ResponseEntity.ok(service.getAllEvent(
             keyword, categoryId, status, regionId,
@@ -47,6 +46,16 @@ public class AdminEventStatsController {
         @PathVariable("eventId") Long eventId
     ) {
         return ResponseEntity.ok(service.getEventAnalysis(eventId));
+    }
+
+    // ── ✅ 참여자 목록 (페이징) ──
+    @GetMapping("/events/{eventId}/participants")
+    public ResponseEntity<Page<AdminEventStatsDto.ParticipantListResponse>> getEventParticipants(
+        @PathVariable("eventId") Long eventId,
+        @RequestParam(name = "page", defaultValue = "0") int page,
+        @RequestParam(name = "size", defaultValue = "10") int size
+    ) {
+        return ResponseEntity.ok(service.getEventParticipants(eventId, page, size));
     }
 
     // ── 월별 통계 ──
