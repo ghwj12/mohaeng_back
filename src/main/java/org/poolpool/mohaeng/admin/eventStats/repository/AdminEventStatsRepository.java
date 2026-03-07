@@ -85,4 +85,25 @@ public interface AdminEventStatsRepository extends JpaRepository<EventEntity, Lo
     // ── 9. 관심(위시리스트) 수 ──
     @Query(value = "SELECT COUNT(*) FROM event_wishlist WHERE EVENT_ID = :eventId", nativeQuery = true)
     Long countWishlistByEventId(@Param("eventId") Long eventId);
+
+    // ── 10. 유입경로 통계 ── ✅ 신규
+    @Query(value = "SELECT PCT_ROOT, COUNT(*) as cnt FROM event_participation " +
+                   "WHERE EVENT_ID = :eventId AND PCT_STATUS IN ('결제완료', '참여확정') " +
+                   "AND PCT_ROOT IS NOT NULL AND PCT_ROOT != '' " +
+                   "GROUP BY PCT_ROOT ORDER BY cnt DESC",
+           nativeQuery = true)
+    List<Object[]> countRootByEventId(@Param("eventId") Long eventId);
+
+    // ── 11. 참여자 목록 (페이징) ── ✅ 신규
+    @Query(value = "SELECT ep.PCT_ID, u.NAME, u.EMAIL, u.PHONE, " +
+                   "ep.PCT_GENDER, ep.PCT_AGEGROUP, ep.PCT_DATE, " +
+                   "ep.PCT_JOB, ep.PCT_GROUP, ep.PCT_RANK, ep.PCT_ROOT, ep.PCT_INTRODUCE " +
+                   "FROM event_participation ep " +
+                   "LEFT JOIN users u ON ep.USER_ID = u.USER_ID " +
+                   "WHERE ep.EVENT_ID = :eventId AND ep.PCT_STATUS IN ('결제완료', '참여확정') " +
+                   "ORDER BY ep.PCT_ID DESC",
+           countQuery = "SELECT COUNT(*) FROM event_participation " +
+                        "WHERE EVENT_ID = :eventId AND PCT_STATUS IN ('결제완료', '참여확정')",
+           nativeQuery = true)
+    Page<Object[]> findParticipantsByEventId(@Param("eventId") Long eventId, Pageable pageable);
 }

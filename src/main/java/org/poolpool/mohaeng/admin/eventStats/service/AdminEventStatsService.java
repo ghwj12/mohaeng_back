@@ -9,13 +9,17 @@ import java.util.List;
 public interface AdminEventStatsService {
 
     Page<AdminEventStatsDto.EventListResponse> getAllEvent(
-            String keyword, Integer categoryId, String status,
-            Long regionId, LocalDate startDate, LocalDate endDate,
-            boolean checkFree, boolean hideClosed, int page, int size);
+        String keyword, Integer categoryId, String status,
+        Long regionId, LocalDate startDate, LocalDate endDate,
+        boolean checkFree, boolean hideClosed, int page, int size
+    );
+
+    AdminEventStatsDto.EventAnalysisDetailResponse getEventAnalysis(Long eventId);
 
     List<AdminEventStatsDto.MonthlyStatsResponse> getEventCountByMonth(int year);
 
     List<AdminEventStatsDto.CategoryStatsResponse> getEventCountByCategory();
 
-    AdminEventStatsDto.EventAnalysisDetailResponse getEventAnalysis(Long eventId);
+    // ✅ 추가
+    Page<AdminEventStatsDto.ParticipantListResponse> getEventParticipants(Long eventId, int page, int size);
 }
