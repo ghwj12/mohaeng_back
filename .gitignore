@@ -24,4 +24,4 @@ build/
 
 # === Application secrets ===
 application-*.yml
-application*.properties
+application-*.properties
