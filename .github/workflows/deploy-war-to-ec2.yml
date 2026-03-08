@@ -28,6 +28,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      # React build 복사 (WAR 배포용)
+      - name: Copy React build to webapp
+        run: |
+          mkdir -p src/main/webapp
+          cp -r src/main/resources/static/* src/main/webapp/
+
+      # WAR 빌드
       - name: Build WAR
         run: |
           chmod +x gradlew
