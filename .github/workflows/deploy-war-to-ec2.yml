@@ -58,7 +58,7 @@ jobs:
             echo "==> Find war"
             ls -al /home/${{ secrets.EC2_USER }}/deploy
 
-            WAR_FILE=$(ls -1 /home/${{ secrets.EC2_USER }}/deploy/*.war | tail -n 1)
+            WAR_FILE=$(ls -1 /home/${{ secrets.EC2_USER }}/deploy/build/libs/*.war | tail -n 1)
             echo "WAR_FILE=$WAR_FILE"
 
             echo "==> Stop tomcat"
