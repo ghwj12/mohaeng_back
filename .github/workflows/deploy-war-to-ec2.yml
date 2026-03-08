@@ -28,15 +28,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      # React 빌드 추가
-      - name: Build React
-        run: |
-          cd frontend            # React 프로젝트 경로
-          npm ci
-          npm run build
-          # React 빌드를 Spring Boot static 폴더로 복사
-          cp -r build/* ../src/main/resources/static/
-
       - name: Build WAR
         run: |
           chmod +x gradlew
