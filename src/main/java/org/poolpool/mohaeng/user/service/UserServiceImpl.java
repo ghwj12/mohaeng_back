@@ -1,6 +1,5 @@
 package org.poolpool.mohaeng.user.service;
 
-import java.io.File;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,9 +10,8 @@ import org.poolpool.mohaeng.auth.token.jwt.JwtProperties;
 import org.poolpool.mohaeng.auth.token.jwt.JwtTokenProvider;
 import org.poolpool.mohaeng.auth.token.refresh.repository.RefreshTokenRepository;
 import org.poolpool.mohaeng.auth.token.refresh.service.RefreshTokenService;
-import org.poolpool.mohaeng.common.config.UploadProperties;
 import org.poolpool.mohaeng.common.service.MailService;
-import org.poolpool.mohaeng.common.util.FileNameChange;
+import org.poolpool.mohaeng.storage.s3.S3StorageService;
 import org.poolpool.mohaeng.user.dto.SocialUserDto;
 import org.poolpool.mohaeng.user.dto.UserDto;
 import org.poolpool.mohaeng.user.entity.SocialUserEntity;
@@ -40,7 +38,7 @@ public class UserServiceImpl implements UserService{
 
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
-	private final UploadProperties uploadProperties;
+	private final S3StorageService s3StorageService;
 	private final SocialUserRepository socialUserRepository;
 	private final RefreshTokenRepository refreshTokenRepository;
 	private final MailService mailService;
@@ -170,27 +168,22 @@ public class UserServiceImpl implements UserService{
 	    	updateUser.setUserPwd(passwordEncoder.encode(user.getUserPwd()));
 	    }
 
-	    // 프로필 사진 처리
+	    // 프로필 사진 처리(S3)
 	    boolean hasNewPhoto = (photo != null && !photo.isEmpty());
 	    if (deletePhoto || hasNewPhoto) {
 	        if (updateUser.getProfileImg() != null) {
-	            File old = uploadProperties.photoDir().resolve(updateUser.getProfileImg()).toFile();
-	            if (old.exists()) old.delete();
+	            s3StorageService.delete("photo", updateUser.getProfileImg());
 	        }
 	        updateUser.setProfileImg(null);
 	    }
 
 	    if (hasNewPhoto) {
-	        String original = photo.getOriginalFilename();
-	        String rename = FileNameChange.change(original, FileNameChange.RenameStrategy.DATETIME_UUID);
-	        File saveDir = uploadProperties.photoDir().toFile();
-	        if (!saveDir.exists()) saveDir.mkdirs();
 	        try {
-				photo.transferTo(new File(saveDir, rename));
-			} catch (Exception e) {
-				throw new RuntimeException("사진 업로드 실패", e);
-			} 
-	        updateUser.setProfileImg(rename);
+	            String savedName = s3StorageService.upload(photo, "photo");
+	            updateUser.setProfileImg(savedName);
+	        } catch (Exception e) {
+	            throw new RuntimeException("사진 업로드 실패", e);
+	        }
 	    }
 
 	    //전화번호 변경

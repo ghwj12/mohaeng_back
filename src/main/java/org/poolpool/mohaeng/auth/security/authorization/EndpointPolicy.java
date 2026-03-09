@@ -35,6 +35,7 @@ public final class EndpointPolicy {
             "/api/mypage/**",
             "/api/reviews", "/api/reviews/**",
             "/api/reports",
-            "/api/notifications", "/api/notifications/**" 
+            "/api/notifications", "/api/notifications/**",
+            "/api/tour/**"
     };
 }

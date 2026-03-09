@@ -157,4 +157,7 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
     List<EventEntity> findAllForScheduler();
 
     boolean existsByHost_UserIdAndEventStatusNotIn(Long hostId, List<String> statuses);
+
+
+    boolean existsByExternalSourceAndExternalContentId(String externalSource, String externalContentId);
 }
