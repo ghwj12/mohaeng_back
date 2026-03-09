@@ -11,7 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface UserRepository extends JpaRepository<UserEntity, Long> {
-	
+
 	//이메일 중복 조회
 	boolean existsByEmail(String email);
 
@@ -23,7 +23,7 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
 	//비밀번호 찾기
 	UserEntity findByEmailAndPhone(String email, String phone);
-	
+
 	//랜덤 비밀번호 업데이트
 	@Modifying
     @Query("""

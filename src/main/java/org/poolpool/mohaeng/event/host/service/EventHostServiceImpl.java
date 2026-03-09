@@ -1,12 +1,9 @@
 package org.poolpool.mohaeng.event.host.service;
 
-import java.io.File;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.poolpool.mohaeng.common.config.UploadProperties;
-import org.poolpool.mohaeng.common.util.FileNameChange;
 import org.poolpool.mohaeng.event.host.dto.EventCreateDto;
 import org.poolpool.mohaeng.event.host.dto.HostEventMypageResponse;
 import org.poolpool.mohaeng.event.host.dto.HostEventSummaryDto;
@@ -24,6 +21,7 @@ import org.poolpool.mohaeng.event.list.repository.EventCategoryRepository;
 import org.poolpool.mohaeng.event.list.repository.EventRegionRepository;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
 import org.poolpool.mohaeng.user.entity.UserEntity;
+import org.poolpool.mohaeng.storage.s3.S3StorageService;
 import org.poolpool.mohaeng.user.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -45,7 +43,7 @@ public class EventHostServiceImpl implements EventHostService {
     private final FileRepository        fileRepository;
     private final EventCategoryRepository eventCategoryRepository;
     private final EventRegionRepository   eventRegionRepository;
-    private final UploadProperties       uploadProperties;
+    private final S3StorageService       s3StorageService;
     private final UserRepository         userRepository;
 
     @Override
@@ -93,15 +91,11 @@ public class EventHostServiceImpl implements EventHostService {
             eventEntity.setBoothEndRecruit(null);
         }
 
-        // 썸네일 저장
+        // 썸네일 저장(S3)
         if (thumbnail != null && !thumbnail.isEmpty()) {
-            String original = thumbnail.getOriginalFilename();
-            String rename   = FileNameChange.change(original, FileNameChange.RenameStrategy.DATETIME_UUID);
-            File saveDir    = uploadProperties.boardDir().toFile();
-            if (!saveDir.exists()) saveDir.mkdirs();
             try {
-                thumbnail.transferTo(new File(saveDir, rename));
-                eventEntity.setThumbnail(rename);
+                String savedName = s3StorageService.upload(thumbnail, "event");
+                eventEntity.setThumbnail(savedName);
             } catch (Exception e) {
                 throw new RuntimeException("썸네일 업로드 실패", e);
             }
@@ -111,18 +105,14 @@ public class EventHostServiceImpl implements EventHostService {
         EventEntity savedEvent = eventRepository.save(eventEntity);
         Long eventId = savedEvent.getEventId();
 
-        // 상세 이미지 저장
+        // 상세 이미지 저장(S3)
         if (detailFiles != null && !detailFiles.isEmpty()) {
-            File saveDir = uploadProperties.boardDir().toFile();
-            if (!saveDir.exists()) saveDir.mkdirs();
-            saveMultiFiles(detailFiles, saveDir, savedEvent, "EVENT");
+            saveMultiFiles(detailFiles, savedEvent, "EVENT", "event");
         }
 
-        // 부스 첨부파일 저장 (✅ 문제 5: actualHasBooth가 true일 때만)
+        // 부스 첨부파일 저장 (S3, actualHasBooth가 true일 때만)
         if (actualHasBooth && boothFiles != null && !boothFiles.isEmpty()) {
-            File saveDir = uploadProperties.hboothDir().toFile();
-            if (!saveDir.exists()) saveDir.mkdirs();
-            saveMultiFiles(boothFiles, saveDir, savedEvent, "HBOOTH");
+            saveMultiFiles(boothFiles, savedEvent, "HBOOTH", "host-booth");
         }
 
         // ✅ 문제 5: 부스 저장 (actualHasBooth가 true일 때만)
@@ -166,19 +156,18 @@ public class EventHostServiceImpl implements EventHostService {
         return eventId;
     }
 
-    private void saveMultiFiles(List<MultipartFile> files, File saveDir, EventEntity event, String fileType) {
+    private void saveMultiFiles(List<MultipartFile> files, EventEntity event, String fileType, String dir) {
         int sortOrder = 1;
         for (MultipartFile file : files) {
             if (file.isEmpty()) continue;
             String original = file.getOriginalFilename();
-            String rename   = FileNameChange.change(original, FileNameChange.RenameStrategy.DATETIME_UUID);
             try {
-                file.transferTo(new File(saveDir, rename));
+                String savedName = s3StorageService.upload(file, dir);
                 fileRepository.save(FileEntity.builder()
                         .event(event)
                         .fileType(fileType)
                         .originalFileName(original)
-                        .renameFileName(rename)
+                        .renameFileName(savedName)
                         .sortOrder(sortOrder++)
                         .createdAt(LocalDateTime.now())
                         .build());

@@ -90,6 +90,12 @@ public class EventEntity {
     private String zipCode;
     private String topicIds;
     private String hashtagIds;
+    @Column(name = "external_source", length = 50)
+    private String externalSource;
+
+    @Column(name = "external_content_id", length = 100)
+    private String externalContentId;
+
 
     @OneToMany(mappedBy = "event", fetch = FetchType.LAZY)
     @Builder.Default
