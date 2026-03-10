@@ -4,11 +4,28 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.poolpool.mohaeng.user.entity.UserEntity;
-import jakarta.persistence.*;
-import lombok.*;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "event")
@@ -95,8 +112,12 @@ public class EventEntity {
 
     @Column(name = "external_content_id", length = 100)
     private String externalContentId;
+    
+    @Column(columnDefinition = "MEDIUMTEXT")
+    private String embedding;
 
 
+    @JsonIgnore
     @OneToMany(mappedBy = "event", fetch = FetchType.LAZY)
     @Builder.Default
     private List<FileEntity> eventFiles = new ArrayList<>();

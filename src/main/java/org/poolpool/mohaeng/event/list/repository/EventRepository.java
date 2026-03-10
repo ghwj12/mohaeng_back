@@ -151,6 +151,8 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
     List<EventDailyCountDto> countDailyEventsByRegion(
             @Param("regionMin") Long regionMin,
             @Param("regionMax") Long regionMax);
+    
+    List<EventEntity> findTop6ByEventStatusNotInOrderByViewsDesc(List<String> statuses);
 
     // 스케줄러 전용 — 상태 보존 대상 제외하고 조회
     @Query("SELECT e FROM EventEntity e WHERE e.eventStatus NOT IN ('DELETED', 'report_deleted', 'REPORT_DELETED', '행사삭제')")
@@ -160,4 +162,10 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
 
 
     boolean existsByExternalSourceAndExternalContentId(String externalSource, String externalContentId);
+    
+ // AI 추천 - 이력 없을 때 최신 6개
+    List<EventEntity> findTop6ByEventStatusNotInOrderByCreatedAtDesc(List<String> statuses);
+
+    // AI 추천 - 전체 활성 행사 조회
+    List<EventEntity> findByEventStatusNotIn(List<String> statuses);
 }

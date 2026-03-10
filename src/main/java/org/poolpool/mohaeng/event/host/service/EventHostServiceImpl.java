@@ -20,8 +20,8 @@ import org.poolpool.mohaeng.event.list.entity.FileEntity;
 import org.poolpool.mohaeng.event.list.repository.EventCategoryRepository;
 import org.poolpool.mohaeng.event.list.repository.EventRegionRepository;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
-import org.poolpool.mohaeng.user.entity.UserEntity;
 import org.poolpool.mohaeng.storage.s3.S3StorageService;
+import org.poolpool.mohaeng.user.entity.UserEntity;
 import org.poolpool.mohaeng.user.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -104,7 +104,7 @@ public class EventHostServiceImpl implements EventHostService {
         // 행사 저장
         EventEntity savedEvent = eventRepository.save(eventEntity);
         Long eventId = savedEvent.getEventId();
-
+        
         // 상세 이미지 저장(S3)
         if (detailFiles != null && !detailFiles.isEmpty()) {
             saveMultiFiles(detailFiles, savedEvent, "EVENT", "event");

@@ -95,6 +95,9 @@ dependencies {
 	implementation 'software.amazon.awssdk:s3:2.31.18'
     implementation 'software.amazon.awssdk:auth:2.31.18'
     implementation 'software.amazon.awssdk:regions:2.31.18'
+    
+    // AI 추천
+	implementation 'com.fasterxml.jackson.core:jackson-databind'
 }
 
 // sourceSets
@@ -127,4 +130,10 @@ clean {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+eclipse {
+    classpath {
+        defaultOutputDir = file('build/classes/java/main')
+    }
 }
