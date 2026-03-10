@@ -2,22 +2,71 @@ name: Deploy Spring Boot WAR to EC2 (Tomcat)
 
 on:
   push:
-    branches: ["main"]   # main 브랜치 push 시 배포
+    branches: ["main"]
+
+  repository_dispatch:
+    types: [frontend-updated]
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+
+      # backend repo checkout
+      - name: Checkout Backend
         uses: actions/checkout@v4
 
+      # React repo clone
+      - name: Clone React Repository
+        run: |
+          git clone -b main https://github.com/ghwj12/mohaeng_front.git frontend
+
+      # Node 설치
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # React node_modules cache (배포 속도 향상)
+      - name: Cache React node_modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      # React dependency 설치
+      - name: Install React dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      # React build
+      - name: Build React
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          REACT_APP_API_BASE_URL: ${{ secrets.REACT_APP_API_BASE_URL }}
+
+      # 기존 static 삭제
+      - name: Clean static folder
+        run: rm -rf src/main/resources/static/*
+
+      # React build → Spring static 복사
+      - name: Copy React build to Spring static
+        run: |
+          mkdir -p src/main/resources/static
+          cp -r frontend/build/* src/main/resources/static/
+
+      # JDK 설치
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
+      # Gradle cache
       - name: Gradle cache
         uses: actions/cache@v4
         with:
@@ -28,19 +77,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      # React build 복사 (WAR 배포용)
-      - name: Copy React build to webapp
-        run: |
-          mkdir -p src/main/webapp
-          cp -r src/main/resources/static/* src/main/webapp/
-
-      # WAR 빌드
+      # WAR build
       - name: Build WAR
         run: |
           chmod +x gradlew
           ./gradlew clean bootWar
 
-      # WAR 파일 EC2로 전송
+      # WAR EC2 전송
       - name: Copy WAR to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -51,7 +94,7 @@ jobs:
           source: "build/libs/*.war"
           target: "/home/${{ secrets.EC2_USER }}/deploy"
 
-      # EC2에서 Tomcat 배포
+      # EC2 Tomcat 배포
       - name: Deploy on EC2 (Tomcat)
         uses: appleboy/ssh-action@v1.0.3
         with:
