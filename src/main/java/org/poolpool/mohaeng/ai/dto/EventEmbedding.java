@@ -11,4 +11,7 @@ public class EventEmbedding {
     private Long eventId;
 
     private String embedding;
+
+    @JsonProperty("region_id")
+    private Long regionId;
 }

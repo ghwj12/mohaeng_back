@@ -11,5 +11,8 @@ public class RecommendRequest {
     @JsonProperty("user_text")
     private String userText;
 
+    @JsonProperty("user_region_ids")
+    private List<Long> userRegionIds;
+
     private List<EventEmbedding> events;
 }

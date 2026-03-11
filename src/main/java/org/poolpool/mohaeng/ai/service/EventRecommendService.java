@@ -15,6 +15,7 @@ import org.poolpool.mohaeng.ai.dto.EmbeddingRequest;
 import org.poolpool.mohaeng.ai.dto.EmbeddingResponse;
 import org.poolpool.mohaeng.ai.dto.EventEmbedding;
 import org.poolpool.mohaeng.ai.dto.RecommendRequest;
+import org.poolpool.mohaeng.ai.dto.TagSuggestResponse;
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
 import org.poolpool.mohaeng.event.list.repository.EventHashtagRepository;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
@@ -22,6 +23,7 @@ import org.poolpool.mohaeng.event.participation.repository.EventParticipationRep
 import org.poolpool.mohaeng.event.wishlist.repository.EventWishlistRepository;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import lombok.RequiredArgsConstructor;
 
@@ -49,7 +51,6 @@ public class EventRecommendService {
         Map.entry("22","심리 명상"), Map.entry("23","연애 결혼"), Map.entry("24","종교"), Map.entry("25","기타")
     );
 
-    // 행사 텍스트 생성
     private String buildEventText(EventEntity e) {
         StringBuilder sb = new StringBuilder();
         if (e.getTitle() != null) sb.append(e.getTitle()).append(" ");
@@ -73,7 +74,6 @@ public class EventRecommendService {
 
     // AI 추천 (로그인 유저)
     public List<EventEntity> recommend(Long userId) {
-        // 찜 + 참여기록 수집
         List<Long> wishlistIds = new ArrayList<>();
         wishlistRepository.findByUserIdOrderByCreatedAtDesc(userId, Pageable.unpaged())
             .forEach(w -> wishlistIds.add(w.getEventId()));
@@ -89,23 +89,24 @@ public class EventRecommendService {
         seen.addAll(pctIds);
         List<Long> historyIds = new ArrayList<>(seen);
 
-        System.out.println("=== AI 추천 디버그 ===");
-        System.out.println("userId: " + userId);
-        System.out.println("historyIds: " + historyIds);
-        System.out.println("allEvents 수: " + eventRepository.findByEventStatusNotIn(EXCLUDED_STATUSES).stream().filter(e -> e.getEmbedding() != null).count());
-
-        // 이력 없음 → 조회수 순
         if (historyIds.isEmpty()) {
             return eventRepository.findTop6ByEventStatusNotInOrderByViewsDesc(EXCLUDED_STATUSES);
         }
 
-        // 사용자 텍스트 생성
         List<EventEntity> historyEvents = eventRepository.findAllById(historyIds);
+
         String userText = historyEvents.stream()
             .map(this::buildEventText)
             .collect(Collectors.joining(" "));
 
-        // 전체 활성 행사 (embedding 있는 것, 이력 제외)
+        // 이력 행사들의 regionId 수집
+        List<Long> userRegionIds = historyEvents.stream()
+            .map(e -> e.getRegion() != null ? e.getRegion().getRegionId() : null)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+
+        System.out.println("userRegionIds: " + userRegionIds);
+
         Set<Long> historyIdSet = new HashSet<>(historyIds);
         List<EventEntity> allEvents = eventRepository.findByEventStatusNotIn(EXCLUDED_STATUSES)
             .stream()
@@ -117,24 +118,27 @@ public class EventRecommendService {
             return eventRepository.findTop6ByEventStatusNotInOrderByViewsDesc(EXCLUDED_STATUSES);
         }
 
-        // FastAPI 요청 구성
         List<EventEmbedding> eventPayload = allEvents.stream()
             .map(e -> {
                 EventEmbedding ee = new EventEmbedding();
                 ee.setEventId(e.getEventId());
                 ee.setEmbedding(e.getEmbedding());
+                if (e.getRegion() != null) {
+                    ee.setRegionId(e.getRegion().getRegionId());
+                }
                 return ee;
             })
             .collect(Collectors.toList());
 
         RecommendRequest req = new RecommendRequest();
         req.setUserText(userText);
+        req.setUserRegionIds(userRegionIds);
         req.setEvents(eventPayload);
 
-        // FastAPI 호출
         List<Long> recommendedIds;
         try {
-        	recommendedIds = aiAgentClient.postLongList("/ai/recommend", req).block();
+            recommendedIds = aiAgentClient.postLongList("/ai/recommend", req).block();
+            System.out.println("FastAPI 응답 recommendedIds: " + recommendedIds);
         } catch (Exception e) {
             System.out.println("FastAPI 호출 실패: " + e.getMessage());
             return eventRepository.findTop6ByEventStatusNotInOrderByViewsDesc(EXCLUDED_STATUSES);
@@ -144,7 +148,6 @@ public class EventRecommendService {
             return eventRepository.findTop6ByEventStatusNotInOrderByViewsDesc(EXCLUDED_STATUSES);
         }
 
-        // event_id 순서 유지하며 반환
         Map<Long, EventEntity> eventMap = allEvents.stream()
             .collect(Collectors.toMap(EventEntity::getEventId, e -> e));
 
@@ -159,6 +162,18 @@ public class EventRecommendService {
         return eventRepository.findTop6ByEventStatusNotInOrderByViewsDesc(EXCLUDED_STATUSES);
     }
 
+    // AI 태그 추천
+    public TagSuggestResponse suggestTags(String title, String description, MultipartFile thumbnail) {
+        try {
+            return aiAgentClient
+                .postMultipart("/ai/suggest-tags", title, description, thumbnail, TagSuggestResponse.class)
+                .block();
+        } catch (Exception e) {
+            System.out.println("AI 태그 추천 실패: " + e.getMessage());
+            return null;
+        }
+    }
+
     // 전체 행사 임베딩 초기화
     public String initEmbeddings() {
         List<EventEntity> all = eventRepository.findAll();
@@ -168,15 +183,12 @@ public class EventRecommendService {
             try {
                 String text = buildEventText(event);
                 EmbeddingRequest req = new EmbeddingRequest(text);
-
                 EmbeddingResponse res = aiAgentClient
                     .post("/ai/embedding", req, EmbeddingResponse.class)
                     .block();
-
                 event.setEmbedding(res.getEmbedding());
                 eventRepository.save(event);
                 success++;
-
                 Thread.sleep(300);
             } catch (Exception e) {
                 fail++;
@@ -186,7 +198,7 @@ public class EventRecommendService {
         return "완료! 성공: " + success + ", 실패: " + fail;
     }
 
-    // 단일 행사 임베딩 저장 (행사 등록 시 호출)
+    // 단일 행사 임베딩 저장
     public void saveEmbedding(EventEntity event) {
         try {
             String text = buildEventText(event);
