@@ -9,6 +9,9 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.poolpool.mohaeng.user.entity.UserEntity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -25,7 +28,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "event")
@@ -39,6 +41,10 @@ public class EventEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long eventId;
 
+    @JsonIgnoreProperties({"userPwd", "phone", "email", "createdAt", "updatedAt",
+                            "lastLoginAt", "withdrawalReason", "withreasonId",
+                            "signupType", "userStatus", "userRole", "businessNum",
+                            "hibernateLazyInitializer", "handler"})
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "host_id")
     private UserEntity host;
@@ -46,6 +52,7 @@ public class EventEntity {
     @Column(nullable = false, length = 200)
     private String title;
 
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id")
     private EventCategoryEntity category;
@@ -75,6 +82,7 @@ public class EventEntity {
     @Column(nullable = false)
     private Boolean hasFacility;
 
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "region_id")
     private EventRegionEntity region;
@@ -107,15 +115,16 @@ public class EventEntity {
     private String zipCode;
     private String topicIds;
     private String hashtagIds;
+
     @Column(name = "external_source", length = 50)
     private String externalSource;
 
     @Column(name = "external_content_id", length = 100)
     private String externalContentId;
-    
+
+    @JsonIgnore
     @Column(columnDefinition = "MEDIUMTEXT")
     private String embedding;
-
 
     @JsonIgnore
     @OneToMany(mappedBy = "event", fetch = FetchType.LAZY)
@@ -125,7 +134,7 @@ public class EventEntity {
     // ✅ report_deleted 상태는 절대 덮어쓸 수 없음
     public void setEventStatus(String newStatus) {
         if (isReportDeleted(this.eventStatus)) {
-            return; // report_deleted 이면 어떤 값으로도 변경 불가
+            return;
         }
         this.eventStatus = newStatus;
     }
@@ -144,7 +153,6 @@ public class EventEntity {
         this.eventStatus = "DELETED";
     }
 
-    // 신고 승인으로 삭제 — 직접 필드에 쓰므로 setter 우회 없이 안전
     public void changeStatusToReportDeleted() {
         this.eventStatus = "report_deleted";
     }
