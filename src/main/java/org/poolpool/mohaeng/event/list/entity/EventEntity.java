@@ -1,4 +1,6 @@
 package org.poolpool.mohaeng.event.list.entity;
+
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -37,14 +39,17 @@ import lombok.Setter;
 @AllArgsConstructor
 @Builder
 public class EventEntity {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long eventId;
 
-    @JsonIgnoreProperties({"userPwd", "phone", "email", "createdAt", "updatedAt",
-                            "lastLoginAt", "withdrawalReason", "withreasonId",
-                            "signupType", "userStatus", "userRole", "businessNum",
-                            "hibernateLazyInitializer", "handler"})
+    @JsonIgnoreProperties({
+            "userPwd", "phone", "email", "createdAt", "updatedAt",
+            "lastLoginAt", "withdrawalReason", "withreasonId",
+            "signupType", "userStatus", "userRole", "businessNum",
+            "hibernateLazyInitializer", "handler"
+    })
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "host_id")
     private UserEntity host;
@@ -52,7 +57,7 @@ public class EventEntity {
     @Column(nullable = false, length = 200)
     private String title;
 
-    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+    @JsonIgnoreProperties({ "hibernateLazyInitializer", "handler" })
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id")
     private EventCategoryEntity category;
@@ -68,11 +73,9 @@ public class EventEntity {
     private LocalTime startTime;
     private LocalTime endTime;
 
-    // 참여자 모집
     private LocalDate startRecruit;
     private LocalDate endRecruit;
 
-    // 부스 모집
     private LocalDate boothStartRecruit;
     private LocalDate boothEndRecruit;
 
@@ -82,7 +85,7 @@ public class EventEntity {
     @Column(nullable = false)
     private Boolean hasFacility;
 
-    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+    @JsonIgnoreProperties({ "hibernateLazyInitializer", "handler" })
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "region_id")
     private EventRegionEntity region;
@@ -96,7 +99,6 @@ public class EventEntity {
     @Column(nullable = false)
     private Integer views;
 
-    // ✅ Lombok @Setter 생성 차단 — 커스텀 setter로만 변경 가능
     @Setter(AccessLevel.NONE)
     @Column(length = 50)
     private String eventStatus;
@@ -126,12 +128,23 @@ public class EventEntity {
     @Column(columnDefinition = "MEDIUMTEXT")
     private String embedding;
 
+    @Column(name = "ai_risk_score", precision = 3, scale = 2)
+    private BigDecimal aiRiskScore;
+
+    @Column(name = "ai_checked_at")
+    private LocalDateTime aiCheckedAt;
+
+    @Column(name = "needs_moderation")
+    private Boolean needsModeration;
+
+    @Column(name = "moderation_status", length = 30)
+    private String moderationStatus;
+
     @JsonIgnore
     @OneToMany(mappedBy = "event", fetch = FetchType.LAZY)
     @Builder.Default
     private List<FileEntity> eventFiles = new ArrayList<>();
 
-    // ✅ report_deleted 상태는 절대 덮어쓸 수 없음
     public void setEventStatus(String newStatus) {
         if (isReportDeleted(this.eventStatus)) {
             return;
@@ -142,7 +155,7 @@ public class EventEntity {
     private boolean isReportDeleted(String status) {
         if (status == null) return false;
         return status.toLowerCase().contains("report_deleted")
-            || status.equalsIgnoreCase("report_deleted");
+                || status.equalsIgnoreCase("report_deleted");
     }
 
     public void changeStatusToHostDeleted() {
@@ -155,6 +168,21 @@ public class EventEntity {
 
     public void changeStatusToReportDeleted() {
         this.eventStatus = "report_deleted";
+    }
+
+    public void changeModerationStatusToPending() {
+        this.needsModeration = true;
+        this.moderationStatus = "승인대기";
+    }
+
+    public void changeModerationStatusToApproved() {
+        this.needsModeration = false;
+        this.moderationStatus = "승인";
+    }
+
+    public void changeModerationStatusToRejected() {
+        this.needsModeration = true;
+        this.moderationStatus = "반려";
     }
 
     public void updateCategoryAndRegion(EventCategoryEntity category, EventRegionEntity region) {
