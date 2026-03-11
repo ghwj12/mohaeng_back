@@ -7,7 +7,8 @@ public final class EndpointPolicy {
     public static final String[] PUBLIC_GET = {
             "/api/events/**",
             "/oauth2/**", "/login/oauth2/**",	//소셜 계정 연동
-            "/api/eventInquiry/list"	//문의 목록
+            "/api/eventInquiry/list",	//문의 목록
+            "/api/ai/events/**"
     };
 
     public static final String[] PUBLIC_POST = {
@@ -17,7 +18,8 @@ public final class EndpointPolicy {
             "/api/user/searchId",	//이메일 찾기
             "/api/user/renewPwd",	//비밀번호 찾기
             "/api/sms/**",			//문자 인증
-            "/api/nts/**"			//사업자 등록번호 조회
+            "/api/nts/**",			//사업자 등록번호 조회
+            "/api/ai/chat"
     };
 
     //관리자(ADMIN)만 가능

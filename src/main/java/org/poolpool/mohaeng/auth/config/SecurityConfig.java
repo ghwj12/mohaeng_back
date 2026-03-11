@@ -140,6 +140,15 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, EndpointPolicy.SERVICE_PAGE).hasAnyRole("USER","ADMIN")
                 .requestMatchers(HttpMethod.DELETE, EndpointPolicy.SERVICE_PAGE).hasAnyRole("USER","ADMIN")
                 .requestMatchers(HttpMethod.PATCH, EndpointPolicy.SERVICE_PAGE).hasAnyRole("USER","ADMIN")
+                
+                .requestMatchers(
+                	    "/api/auth/**",
+                	    "/api/events/**",
+                	    "/api/reviews/**",
+                	    "/api/wishlist/**",
+                	    "/api/notifications/**",
+                	    "/api/ai/**"
+                	).permitAll()
 
                 .anyRequest().authenticated()
             )
