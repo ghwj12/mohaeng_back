@@ -1,6 +1,5 @@
 package org.poolpool.mohaeng.user.service;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -61,18 +60,8 @@ public class UserServiceImpl implements UserService{
 	@Override
 	@Transactional
 	public int insertUser(UserDto user) {
-		String email = user.getEmail();
 		
-		// 탈퇴했던 회원일 경우 기존 데이터 업데이트를 위해 userId 조회 및 세팅
-		if(userRepository.existsByEmail(email)) {
-			Optional<UserEntity> existUser = userRepository.findByEmail(email);
-			if (!existUser.isEmpty()) {
-				user.setUserId(existUser.get().getUserId());
-				user.setCreatedAt(LocalDateTime.now());
-				user.setLastLoginAt(LocalDate.now());
-			}
-		}
-		
+	
 		//사용자가 입력한 평문 비밀번호
 	    String rawPassword = user.getUserPwd();
 
