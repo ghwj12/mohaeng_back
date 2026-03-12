@@ -129,30 +129,25 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
     Integer countParticipantsByEventId(@Param("eventId") Long eventId);
 
     @Query(value =
-        "SELECT DATE(d.date) as date, COUNT(e.event_id) as count " +
-        "FROM event e " +
-        "JOIN ( " +
-        "  SELECT DATE_ADD(e2.start_date, INTERVAL n.n DAY) as date, e2.event_id " +
-        "  FROM event e2 " +
-        "  JOIN ( " +
-        "    SELECT 0 n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 " +
-        "    UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 " +
-        "    UNION SELECT 10 UNION SELECT 11 UNION SELECT 12 UNION SELECT 13 UNION SELECT 14 " +
-        "    UNION SELECT 15 UNION SELECT 16 UNION SELECT 17 UNION SELECT 18 UNION SELECT 19 " +
-        "    UNION SELECT 20 UNION SELECT 21 UNION SELECT 22 UNION SELECT 23 UNION SELECT 24 " +
-        "    UNION SELECT 25 UNION SELECT 26 UNION SELECT 27 UNION SELECT 28 UNION SELECT 29 " +
-        "    UNION SELECT 30 " +
-        "  ) n " +
-        "  WHERE DATE_ADD(e2.start_date, INTERVAL n.n DAY) <= e2.end_date " +
-        ") d ON e.event_id = d.event_id " +
-        "WHERE e.region_id BETWEEN :regionMin AND :regionMax " +
-        "AND e.event_status NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted', '행사삭제') " +
-        "AND e.moderation_status = '승인' " +
-        "GROUP BY DATE(d.date) ORDER BY DATE(d.date)",
-        nativeQuery = true)
-    List<EventDailyCountDto> countDailyEventsByRegion(
-            @Param("regionMin") Long regionMin,
-            @Param("regionMax") Long regionMax);
+    	    "SELECT DATE(d.date) as date, COUNT(e.event_id) as count " +
+    	    "FROM event e " +
+    	    "JOIN ( " +
+    	    "  SELECT DATE_ADD(e2.start_date, INTERVAL (a.n + b.n * 10 + c.n * 100) DAY) as date, e2.event_id " +
+    	    "  FROM event e2 " +
+    	    "  CROSS JOIN (SELECT 0 n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) a " +
+    	    "  CROSS JOIN (SELECT 0 n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b " +
+    	    "  CROSS JOIN (SELECT 0 n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3) c " +
+    	    "  WHERE DATE_ADD(e2.start_date, INTERVAL (a.n + b.n * 10 + c.n * 100) DAY) <= e2.end_date " +
+    	    "  AND e2.region_id BETWEEN :regionMin AND :regionMax " +  // ✅ 서브쿼리 안에서 먼저 필터 → 성능도 좋아짐
+    	    ") d ON e.event_id = d.event_id " +
+    	    "WHERE e.region_id BETWEEN :regionMin AND :regionMax " +   // ✅ JOIN 없이 직접 비교
+    	    "AND e.event_status NOT IN ('DELETED', 'REPORT_DELETED', 'report_deleted', '행사삭제', '행사종료') " +
+    	    "AND e.moderation_status = '승인' " +
+    	    "GROUP BY DATE(d.date) ORDER BY DATE(d.date)",
+    	    nativeQuery = true)
+    	List<EventDailyCountDto> countDailyEventsByRegion(
+    	        @Param("regionMin") Long regionMin,
+    	        @Param("regionMax") Long regionMax);
 
     List<EventEntity> findTop6ByEventStatusNotInOrderByViewsDesc(List<String> statuses);
 
