@@ -5,6 +5,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.poolpool.mohaeng.ai.client.AiModerationClient;
+import org.poolpool.mohaeng.ai.dto.AiModerationRequestDto;
+import org.poolpool.mohaeng.ai.dto.AiModerationResponseDto;
 import org.poolpool.mohaeng.event.host.dto.EventCreateDto;
 import org.poolpool.mohaeng.event.host.dto.HostEventMypageResponse;
 import org.poolpool.mohaeng.event.host.dto.HostEventSummaryDto;
@@ -24,6 +27,7 @@ import org.poolpool.mohaeng.event.list.repository.EventRepository;
 import org.poolpool.mohaeng.storage.s3.S3StorageService;
 import org.poolpool.mohaeng.user.entity.UserEntity;
 import org.poolpool.mohaeng.user.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -46,6 +50,10 @@ public class EventHostServiceImpl implements EventHostService {
     private final EventRegionRepository eventRegionRepository;
     private final S3StorageService s3StorageService;
     private final UserRepository userRepository;
+    private final AiModerationClient aiModerationClient;
+
+    @Value("${ai.moderation.threshold:0.50}")
+    private BigDecimal moderationThreshold;
 
     @Override
     @Transactional
@@ -100,19 +108,8 @@ public class EventHostServiceImpl implements EventHostService {
             }
         }
 
-        // 임시 위험 점수 계산
-        BigDecimal riskScore = calculateTemporaryRiskScore(eventEntity);
-        BigDecimal thresholdScore = new BigDecimal("0.50");
-
-        eventEntity.setAiRiskScore(riskScore);
-        eventEntity.setAiCheckedAt(LocalDateTime.now());
-
-        // 위험 점수 0.50 이상이면 관리자 검수
-        if (riskScore.compareTo(thresholdScore) >= 0) {
-            eventEntity.changeModerationStatusToPending();   // needsModeration = true, 승인대기
-        } else {
-            eventEntity.changeModerationStatusToApproved();  // needsModeration = false, 승인
-        }
+        // AI 검수
+        applyAiModeration(eventEntity);
 
         // 행사 저장
         EventEntity savedEvent = eventRepository.save(eventEntity);
@@ -169,6 +166,41 @@ public class EventHostServiceImpl implements EventHostService {
         return eventId;
     }
 
+    private void applyAiModeration(EventEntity eventEntity) {
+        try {
+            AiModerationRequestDto requestDto = AiModerationRequestDto.builder()
+                    .title(eventEntity.getTitle())
+                    .simpleExplain(eventEntity.getSimpleExplain())
+                    .description(eventEntity.getDescription())
+                    .lotNumberAdr(eventEntity.getLotNumberAdr())
+                    .detailAdr(eventEntity.getDetailAdr())
+                    .topicIds(eventEntity.getTopicIds())
+                    .hashtagIds(eventEntity.getHashtagIds())
+                    .build();
+
+            AiModerationResponseDto responseDto = aiModerationClient.moderateEvent(requestDto);
+
+            BigDecimal riskScore = responseDto != null && responseDto.getRiskScore() != null
+                    ? responseDto.getRiskScore()
+                    : BigDecimal.ZERO;
+
+            eventEntity.setAiRiskScore(riskScore);
+            eventEntity.setAiCheckedAt(LocalDateTime.now());
+
+            if (riskScore.compareTo(moderationThreshold) >= 0) {
+                eventEntity.changeModerationStatusToPending();
+            } else {
+                eventEntity.changeModerationStatusToApproved();
+            }
+
+        } catch (Exception e) {
+            // AI 실패 시 안전하게 관리자 검수로 보냄
+            eventEntity.setAiRiskScore(null);
+            eventEntity.setAiCheckedAt(LocalDateTime.now());
+            eventEntity.changeModerationStatusToPending();
+        }
+    }
+
     private void saveMultiFiles(List<MultipartFile> files, EventEntity event, String fileType, String dir) {
         int sortOrder = 1;
         for (MultipartFile file : files) {
@@ -188,78 +220,6 @@ public class EventHostServiceImpl implements EventHostService {
                 throw new RuntimeException(fileType + " 다중 파일 업로드 실패", e);
             }
         }
-    }
-
-    private BigDecimal calculateTemporaryRiskScore(EventEntity eventEntity) {
-        String text = buildModerationText(eventEntity).toLowerCase();
-        BigDecimal score = BigDecimal.ZERO;
-
-        // 1. 광고 / 스팸 / 도배
-        if (containsAny(text,
-                "무료", "할인", "특가", "선착순", "문의", "상담", "카톡", "오픈채팅", "링크", "홍보")) {
-            score = score.add(new BigDecimal("0.30"));
-        }
-
-        // 2. 허위 정보 / 내용 불일치
-        if (containsAny(text,
-                "100% 보장", "무조건", "확정", "전액환불", "공식 확정", "검증완료")) {
-            score = score.add(new BigDecimal("0.25"));
-        }
-
-        // 3. 도용 / 사칭 / 저작권 침해
-        if (containsAny(text,
-                "공식", "브랜드", "연예인", "저작권", "무단", "사칭", "제휴")) {
-            score = score.add(new BigDecimal("0.35"));
-        }
-
-        // 4. 부적절한 내용
-        if (containsAny(text,
-                "도박", "불법", "성인", "음란", "마약", "혐오", "폭력")) {
-            score = score.add(new BigDecimal("0.60"));
-        }
-
-        // 5. 중복 / 낚시성 등록
-        if (containsAny(text,
-                "긴급", "대박", "클릭", "실화", "충격", "마감임박", "지금바로")) {
-            score = score.add(new BigDecimal("0.20"));
-        }
-
-        // 6. 기타
-        if (text.contains("http://") || text.contains("https://") || text.contains("!!!")) {
-            score = score.add(new BigDecimal("0.10"));
-        }
-
-        // 최대 1.00 제한
-        if (score.compareTo(new BigDecimal("1.00")) > 0) {
-            score = new BigDecimal("1.00");
-        }
-
-        return score;
-    }
-
-    private String buildModerationText(EventEntity eventEntity) {
-        StringBuilder sb = new StringBuilder();
-
-        if (eventEntity.getTitle() != null) {
-            sb.append(eventEntity.getTitle()).append(" ");
-        }
-        if (eventEntity.getSimpleExplain() != null) {
-            sb.append(eventEntity.getSimpleExplain()).append(" ");
-        }
-        if (eventEntity.getDescription() != null) {
-            sb.append(eventEntity.getDescription()).append(" ");
-        }
-
-        return sb.toString().trim();
-    }
-
-    private boolean containsAny(String text, String... keywords) {
-        for (String keyword : keywords) {
-            if (text.contains(keyword.toLowerCase())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override
@@ -300,7 +260,7 @@ public class EventHostServiceImpl implements EventHostService {
                 .totalElements(p.getTotalElements())
                 .build();
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public boolean hasActiveEvent(Long hostId) {
