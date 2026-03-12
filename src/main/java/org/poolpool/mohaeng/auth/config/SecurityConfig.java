@@ -120,6 +120,8 @@ public class SecurityConfig {
 
                 // PUBLIC POST
                 .requestMatchers(HttpMethod.POST, EndpointPolicy.PUBLIC_POST).permitAll()
+                
+                .requestMatchers(HttpMethod.POST, "/api/user/verifyBiz").permitAll()
 
                 // ADMIN only
                 .requestMatchers(HttpMethod.POST, EndpointPolicy.ADMIN_PAGE).hasRole("ADMIN")

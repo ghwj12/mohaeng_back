@@ -222,6 +222,55 @@ public class UserController {
         
     }
 	
+	// 사업자 등록증 인증 (회원가입 전 별도 호출)
+	@PostMapping(value = "/verifyBiz", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ResponseEntity<ApiResponse<Map<String, Object>>> verifyBiz(
+	        @RequestPart("businessFile") MultipartFile businessFile) {
+	    try {
+	        BizOcrResponse ocrResult = bizOcrService.extractBusinessInfo(businessFile);
+
+	        String businessNum = ocrResult.getBusinessNumber();
+	        String ownerName   = ocrResult.getOwnerName();
+	        String openDate    = ocrResult.getOpenDate();
+	        
+	        log.info("===== 사업자 인증 결과 =====");
+	        log.info("사업자번호: {}", businessNum);
+	        log.info("대표자명: {}", ownerName);
+	        log.info("개업일자: {}", openDate);
+	        log.info("회사명: {}", ocrResult.getCompanyName());
+	        log.info("isValid: {}", ocrResult.getIsValid());
+	        log.info("validationStatus: {}", ocrResult.getValidationStatus());
+	        log.info("validationMessage: {}", ocrResult.getValidationMessage());
+	        log.info("===========================");
+
+	        if (businessNum.isEmpty() || ownerName.isEmpty() || openDate.isEmpty()) {
+	            return ResponseEntity.status(400)
+	                .<ApiResponse<Map<String, Object>>>body(
+	                    ApiResponse.fail("인증 실패", null));
+	        }
+
+	        Map<String, Object> result = new HashMap<>();
+	        result.put("businessNumber", businessNum);
+	        result.put("companyName",    ocrResult.getCompanyName());
+	        result.put("ownerName",      ownerName);
+	        result.put("isValid",        ocrResult.getIsValid());
+	        result.put("message",        ocrResult.getValidationMessage());
+
+	        if (Boolean.FALSE.equals(ocrResult.getIsValid())) {
+	            return ResponseEntity.status(400)
+	                .<ApiResponse<Map<String, Object>>>body(
+	                    ApiResponse.fail(ocrResult.getValidationMessage(), null));
+	        }
+
+	        return ResponseEntity.ok(ApiResponse.ok("인증 성공", result));
+
+	    } catch (Exception e) {
+	        return ResponseEntity.status(500)
+	            .<ApiResponse<Map<String, Object>>>body(
+	                ApiResponse.fail("사업자 인증 중 오류가 발생했습니다.", null));
+	    }
+	}
+	
 	// 행사 등록 시 회원 정보 조회 (userId)
 	@GetMapping("/me")
 	public ResponseEntity<ApiResponse<UserDto>> getMyProfile(

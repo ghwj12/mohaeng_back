@@ -24,39 +24,30 @@ public class BizOcrService {
     private final AiAgentClient aiAgentClient;
 
     public BizOcrResponse extractBusinessInfo(MultipartFile file) throws Exception {
-
-    	byte[] imageBytes;
-
+        byte[] imageBytes;
         String contentType = file.getContentType();
 
-        // PDF 파일이면 이미지로 변환
         if (contentType != null && contentType.equals("application/pdf")) {
-
+            // PDF → JPEG
             try (PDDocument document = PDDocument.load(file.getInputStream())) {
-
                 PDFRenderer renderer = new PDFRenderer(document);
-
-                // 첫 페이지를 이미지로 변환
-                BufferedImage image = renderer.renderImageWithDPI(0, 300);
-
+                BufferedImage image = renderer.renderImageWithDPI(0, 600);
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 ImageIO.write(image, "jpg", baos);
-
                 imageBytes = baos.toByteArray();
             }
-
         } else {
-            // 이미지 파일이면 그대로 사용
-            imageBytes = file.getBytes();
+            // 이미지 → 무조건 JPEG로 변환 (PNG, BMP 등 포맷 문제 방지)
+        	BufferedImage image = ImageIO.read(file.getInputStream());
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(image, "jpg", baos);
+            imageBytes = baos.toByteArray();
         }
 
-        // Base64 변환
         String base64Image = Base64.getEncoder().encodeToString(imageBytes);
-
         Map<String, String> request = new HashMap<>();
         request.put("imageBase64", base64Image);
-    	
-        // FastAPI 호출
+
         return aiAgentClient
                 .post("/biz/signup/ocr", request, BizOcrResponse.class)
                 .block();
