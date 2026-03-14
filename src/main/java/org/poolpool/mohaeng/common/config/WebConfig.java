@@ -28,8 +28,8 @@ public class WebConfig implements WebMvcConfigurer {
 	            .addResourceLocations("file:" + uploadProperties.uploadDir() + "/");
 	    
 	    //React static 매핑 추가
-	    registry.addResourceHandler("/**")
-	            .addResourceLocations("classpath:/static/");
+//	    registry.addResourceHandler("/**")
+//	            .addResourceLocations("classpath:/static/");
 	}
 
     // 프론트엔드(React)에서 오는 요청을 허락해 주는 설정

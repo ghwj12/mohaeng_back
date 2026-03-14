@@ -97,14 +97,14 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // React static + SPA entry (절대 "/**" permitAll 금지)
             	.dispatcherTypeMatchers(DispatcherType.FORWARD, DispatcherType.ERROR).permitAll()
-                .requestMatchers(HttpMethod.GET,
-                        "/", "/index.html",
-                        "/favicon.ico", "/manifest.json", "/robots.txt",
-                        "/assets/**", "/static/**",
-                        "/*.js", "/*.css", "/*.map", "/geo/**",
-                        "/*.png", "/*.jpg", "/*.jpeg", "/*.gif", "/*.svg", "/*.webp", "/*.ico",
-                        "/error"
-                ).permitAll()
+//                .requestMatchers(HttpMethod.GET,
+//                        "/", "/index.html",
+//                        "/favicon.ico", "/manifest.json", "/robots.txt",
+//                        "/assets/**", "/static/**",
+//                        "/*.js", "/*.css", "/*.map", "/geo/**",
+//                        "/*.png", "/*.jpg", "/*.jpeg", "/*.gif", "/*.svg", "/*.webp", "/*.ico",
+//                        "/error"
+//                ).permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                 // auth endpoints
