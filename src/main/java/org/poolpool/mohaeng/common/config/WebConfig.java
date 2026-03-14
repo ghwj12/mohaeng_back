@@ -26,13 +26,17 @@ public class WebConfig implements WebMvcConfigurer {
 	    
 	    registry.addResourceHandler("/upload_files/**")
 	            .addResourceLocations("file:" + uploadProperties.uploadDir() + "/");
+	    
+	    //React static 매핑 추가
+	    registry.addResourceHandler("/**")
+	            .addResourceLocations("classpath:/static/");
 	}
 
     // 프론트엔드(React)에서 오는 요청을 허락해 주는 설정
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**") // 백엔드의 모든 API 주소에 대해
-                .allowedOrigins("http://localhost:3000") // 리액트(3000번)의 접근 허용
+                .allowedOrigins("http://localhost:3000", "http://3.35.16.158:8080") // 리액트의 접근 허용
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS") // 허용할 방식들
                 .allowedHeaders("*") // 모든 헤더 허용
                 .allowCredentials(true); // 인증 정보(토큰, 쿠키 등) 포함 허용

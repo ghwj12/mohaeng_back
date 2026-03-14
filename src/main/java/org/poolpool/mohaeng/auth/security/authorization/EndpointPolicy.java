@@ -17,8 +17,8 @@ public final class EndpointPolicy {
             "/api/user/socialSignupComplete",	//소셜 회원가입
             "/api/user/searchId",	//이메일 찾기
             "/api/user/renewPwd",	//비밀번호 찾기
+            "/api/user/verifyBiz",	// 사업자 등록증 조회
             "/api/sms/**",			//문자 인증
-            "/api/nts/**",			//사업자 등록번호 조회
             "/api/ai/chat"
     };
 

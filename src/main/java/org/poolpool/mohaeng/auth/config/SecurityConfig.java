@@ -110,8 +110,6 @@ public class SecurityConfig {
                 // auth endpoints
                 .requestMatchers("/auth/**").permitAll()
                 
-                .requestMatchers(HttpMethod.GET, "/api/eventParticipation/check/**").permitAll()
-                
                 // 업로드 파일 접근 권한
                 .requestMatchers("/upload_files/**").permitAll()
 
@@ -120,8 +118,6 @@ public class SecurityConfig {
 
                 // PUBLIC POST
                 .requestMatchers(HttpMethod.POST, EndpointPolicy.PUBLIC_POST).permitAll()
-                
-                .requestMatchers(HttpMethod.POST, "/api/user/verifyBiz").permitAll()
 
                 // ADMIN only
                 .requestMatchers(HttpMethod.POST, EndpointPolicy.ADMIN_PAGE).hasRole("ADMIN")
@@ -195,6 +191,6 @@ public class SecurityConfig {
     public org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer webSecurityCustomizer() {
         return (web) -> web.ignoring()
                 .requestMatchers(org.springframework.boot.autoconfigure.security.servlet.PathRequest.toStaticResources().atCommonLocations())
-                .requestMatchers("/favicon.ico", "/manifest.json", "/*.png", "/error"); // 💡 여기도 error 추가
+                .requestMatchers("/favicon.ico", "/manifest.json", "/*.png", "/error"); 
     }
 }
