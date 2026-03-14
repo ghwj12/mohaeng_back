@@ -5,9 +5,8 @@ WORKDIR /build
 
 COPY . .
 
-# gradle wrapper 사용
 RUN chmod +x ./gradlew
-RUN ./gradlew clean build -x test
+RUN ./gradlew bootJar
 
 # runtime stage
 FROM eclipse-temurin:21-jdk-jammy
