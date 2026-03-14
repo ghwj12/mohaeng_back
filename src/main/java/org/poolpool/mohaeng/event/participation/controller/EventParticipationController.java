@@ -1,13 +1,8 @@
 // src/main/java/org/poolpool/mohaeng/event/participation/controller/EventParticipationController.java
 package org.poolpool.mohaeng.event.participation.controller;
 
-import java.io.File;
-import java.io.IOException;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import org.poolpool.mohaeng.event.list.entity.EventEntity;
 import org.poolpool.mohaeng.event.list.entity.FileEntity;
@@ -23,7 +18,7 @@ import org.poolpool.mohaeng.notification.service.NotificationService;
 import org.poolpool.mohaeng.notification.type.NotiTypeId;
 import org.poolpool.mohaeng.payment.entity.PaymentEntity;
 import org.poolpool.mohaeng.payment.repository.PaymentRepository;
-import org.springframework.beans.factory.annotation.Value;
+import org.poolpool.mohaeng.storage.s3.S3StorageService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -49,12 +44,11 @@ public class EventParticipationController {
     private final EventRepository eventRepository;
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
+    private final S3StorageService s3StorageService;
 
     @PersistenceContext
     private EntityManager em;
 
-    @Value("${upload.path.pbooth:C:/upload_files/pbooth}")
-    private String pboothUploadPath;
 
     // ─────────────────────────────────────────────────────────────────────────
     // 부스 신청 생성
@@ -150,29 +144,24 @@ public class EventParticipationController {
             .executeUpdate();
 
         if (files != null && !files.isEmpty()) {
-            File uploadDir = new File(pboothUploadPath);
-            if (!uploadDir.exists()) uploadDir.mkdirs();
             EventEntity eventEntity = eventRepository.findById(eventId).orElse(null);
-            String datePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            int sortOrder = 0;
             for (MultipartFile file : files) {
                 if (file.isEmpty()) continue;
                 String originalName = file.getOriginalFilename();
-                String ext = (originalName != null && originalName.contains("."))
-                        ? originalName.substring(originalName.lastIndexOf(".")) : "";
-                String saveName = datePart + "_" + UUID.randomUUID().toString().replace("-", "") + ext;
                 try {
-                    file.transferTo(new File(uploadDir, saveName));
+                    String savedName = s3StorageService.upload(file, "pbooth");
                     FileEntity fileEntity = FileEntity.builder()
                             .event(eventEntity)
                             .pctBooth(booth)
                             .fileType("P_BOOTH")
                             .originalFileName(originalName)
-                            .renameFileName(saveName)
-                            .sortOrder(0)
-                            .createdAt(LocalDateTime.now())
+                            .renameFileName(savedName)
+                            .sortOrder(sortOrder++)
+                            .createdAt(java.time.LocalDateTime.now())
                             .build();
                     em.persist(fileEntity);
-                } catch (IOException e) {
+                } catch (Exception e) {
                     log.error("[부스파일 저장 실패] {}", originalName, e);
                 }
             }

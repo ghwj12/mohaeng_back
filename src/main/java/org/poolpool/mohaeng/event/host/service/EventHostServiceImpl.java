@@ -1,12 +1,13 @@
 package org.poolpool.mohaeng.event.host.service;
 
-import java.io.File;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.poolpool.mohaeng.common.config.UploadProperties;
-import org.poolpool.mohaeng.common.util.FileNameChange;
+import org.poolpool.mohaeng.ai.client.AiModerationClient;
+import org.poolpool.mohaeng.ai.dto.AiModerationRequestDto;
+import org.poolpool.mohaeng.ai.dto.AiModerationResponseDto;
 import org.poolpool.mohaeng.event.host.dto.EventCreateDto;
 import org.poolpool.mohaeng.event.host.dto.HostEventMypageResponse;
 import org.poolpool.mohaeng.event.host.dto.HostEventSummaryDto;
@@ -23,8 +24,10 @@ import org.poolpool.mohaeng.event.list.entity.FileEntity;
 import org.poolpool.mohaeng.event.list.repository.EventCategoryRepository;
 import org.poolpool.mohaeng.event.list.repository.EventRegionRepository;
 import org.poolpool.mohaeng.event.list.repository.EventRepository;
+import org.poolpool.mohaeng.storage.s3.S3StorageService;
 import org.poolpool.mohaeng.user.entity.UserEntity;
 import org.poolpool.mohaeng.user.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -39,14 +42,18 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class EventHostServiceImpl implements EventHostService {
 
-    private final EventRepository       eventRepository;
-    private final HostBoothRepository   hostBoothRepository;
+    private final EventRepository eventRepository;
+    private final HostBoothRepository hostBoothRepository;
     private final HostFacilityRepository hostFacilityRepository;
-    private final FileRepository        fileRepository;
+    private final FileRepository fileRepository;
     private final EventCategoryRepository eventCategoryRepository;
-    private final EventRegionRepository   eventRegionRepository;
-    private final UploadProperties       uploadProperties;
-    private final UserRepository         userRepository;
+    private final EventRegionRepository eventRegionRepository;
+    private final S3StorageService s3StorageService;
+    private final UserRepository userRepository;
+    private final AiModerationClient aiModerationClient;
+
+    @Value("${ai.moderation.threshold:0.50}")
+    private BigDecimal moderationThreshold;
 
     @Override
     @Transactional
@@ -79,53 +86,46 @@ public class EventHostServiceImpl implements EventHostService {
                 .orElseThrow(() -> new RuntimeException("존재하지 않는 유저입니다."));
         eventEntity.setHost(host);
 
-        // ✅ 문제 5: hasBooth / hasFacility 는 실제 데이터(리스트 비어있는지 여부) 기준으로 override
-        // 사용자가 체크박스를 체크했다가 해제해도 폼 상태에 데이터가 남아있을 수 있으므로
-        // 실제 전달된 부스/시설 목록이 비어 있으면 false로 강제 지정
+        // 실제 전달된 부스/시설 기준으로 override
         boolean actualHasBooth = createDto.getBooths() != null && !createDto.getBooths().isEmpty();
         boolean actualHasFacility = createDto.getFacilities() != null && !createDto.getFacilities().isEmpty();
         eventEntity.setHasBooth(actualHasBooth);
         eventEntity.setHasFacility(actualHasFacility);
 
-        // ✅ 문제 5: 부스가 없으면 부스 모집 기간도 null로 초기화 (DB에 날짜가 남아 상태가 바뀌는 것 방지)
+        // 부스가 없으면 모집 기간 null 처리
         if (!actualHasBooth) {
             eventEntity.setBoothStartRecruit(null);
             eventEntity.setBoothEndRecruit(null);
         }
 
-        // 썸네일 저장
+        // 썸네일 저장(S3)
         if (thumbnail != null && !thumbnail.isEmpty()) {
-            String original = thumbnail.getOriginalFilename();
-            String rename   = FileNameChange.change(original, FileNameChange.RenameStrategy.DATETIME_UUID);
-            File saveDir    = uploadProperties.boardDir().toFile();
-            if (!saveDir.exists()) saveDir.mkdirs();
             try {
-                thumbnail.transferTo(new File(saveDir, rename));
-                eventEntity.setThumbnail(rename);
+                String savedName = s3StorageService.upload(thumbnail, "event");
+                eventEntity.setThumbnail(savedName);
             } catch (Exception e) {
                 throw new RuntimeException("썸네일 업로드 실패", e);
             }
         }
 
+        // AI 검수
+        applyAiModeration(eventEntity);
+
         // 행사 저장
         EventEntity savedEvent = eventRepository.save(eventEntity);
         Long eventId = savedEvent.getEventId();
 
-        // 상세 이미지 저장
+        // 상세 이미지 저장(S3)
         if (detailFiles != null && !detailFiles.isEmpty()) {
-            File saveDir = uploadProperties.boardDir().toFile();
-            if (!saveDir.exists()) saveDir.mkdirs();
-            saveMultiFiles(detailFiles, saveDir, savedEvent, "EVENT");
+            saveMultiFiles(detailFiles, savedEvent, "EVENT", "event");
         }
 
-        // 부스 첨부파일 저장 (✅ 문제 5: actualHasBooth가 true일 때만)
+        // 부스 첨부파일 저장
         if (actualHasBooth && boothFiles != null && !boothFiles.isEmpty()) {
-            File saveDir = uploadProperties.hboothDir().toFile();
-            if (!saveDir.exists()) saveDir.mkdirs();
-            saveMultiFiles(boothFiles, saveDir, savedEvent, "HBOOTH");
+            saveMultiFiles(boothFiles, savedEvent, "HBOOTH", "host-booth");
         }
 
-        // ✅ 문제 5: 부스 저장 (actualHasBooth가 true일 때만)
+        // 부스 저장
         if (actualHasBooth) {
             List<HostBoothEntity> boothEntities = createDto.getBooths().stream()
                     .filter(dto -> dto.getBoothName() != null && !dto.getBoothName().isBlank())
@@ -144,7 +144,7 @@ public class EventHostServiceImpl implements EventHostService {
             }
         }
 
-        // ✅ 문제 5: 부대시설 저장 (actualHasFacility가 true일 때만)
+        // 부대시설 저장
         if (actualHasFacility) {
             List<HostFacilityEntity> facilityEntities = createDto.getFacilities().stream()
                     .filter(dto -> dto.getFaciName() != null && !dto.getFaciName().isBlank())
@@ -166,19 +166,53 @@ public class EventHostServiceImpl implements EventHostService {
         return eventId;
     }
 
-    private void saveMultiFiles(List<MultipartFile> files, File saveDir, EventEntity event, String fileType) {
+    private void applyAiModeration(EventEntity eventEntity) {
+        try {
+            AiModerationRequestDto requestDto = AiModerationRequestDto.builder()
+                    .title(eventEntity.getTitle())
+                    .simpleExplain(eventEntity.getSimpleExplain())
+                    .description(eventEntity.getDescription())
+                    .lotNumberAdr(eventEntity.getLotNumberAdr())
+                    .detailAdr(eventEntity.getDetailAdr())
+                    .topicIds(eventEntity.getTopicIds())
+                    .hashtagIds(eventEntity.getHashtagIds())
+                    .build();
+
+            AiModerationResponseDto responseDto = aiModerationClient.moderateEvent(requestDto);
+
+            BigDecimal riskScore = responseDto != null && responseDto.getRiskScore() != null
+                    ? responseDto.getRiskScore()
+                    : BigDecimal.ZERO;
+
+            eventEntity.setAiRiskScore(riskScore);
+            eventEntity.setAiCheckedAt(LocalDateTime.now());
+
+            if (riskScore.compareTo(moderationThreshold) >= 0) {
+                eventEntity.changeModerationStatusToPending();
+            } else {
+                eventEntity.changeModerationStatusToApproved();
+            }
+
+        } catch (Exception e) {
+            // AI 실패 시 안전하게 관리자 검수로 보냄
+            eventEntity.setAiRiskScore(null);
+            eventEntity.setAiCheckedAt(LocalDateTime.now());
+            eventEntity.changeModerationStatusToPending();
+        }
+    }
+
+    private void saveMultiFiles(List<MultipartFile> files, EventEntity event, String fileType, String dir) {
         int sortOrder = 1;
         for (MultipartFile file : files) {
             if (file.isEmpty()) continue;
             String original = file.getOriginalFilename();
-            String rename   = FileNameChange.change(original, FileNameChange.RenameStrategy.DATETIME_UUID);
             try {
-                file.transferTo(new File(saveDir, rename));
+                String savedName = s3StorageService.upload(file, dir);
                 fileRepository.save(FileEntity.builder()
                         .event(event)
                         .fileType(fileType)
                         .originalFileName(original)
-                        .renameFileName(rename)
+                        .renameFileName(savedName)
                         .sortOrder(sortOrder++)
                         .createdAt(LocalDateTime.now())
                         .build());
@@ -231,6 +265,8 @@ public class EventHostServiceImpl implements EventHostService {
     @Transactional(readOnly = true)
     public boolean hasActiveEvent(Long hostId) {
         return eventRepository.existsByHost_UserIdAndEventStatusNotIn(
-                hostId, List.of("행사종료", "DELETED"));
+                hostId,
+                List.of("행사종료", "DELETED", "REPORT_DELETED", "report_deleted", "행사삭제")
+        );
     }
 }

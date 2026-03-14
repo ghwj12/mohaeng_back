@@ -90,6 +90,18 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.security:spring-security-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	
+	// s3
+	implementation 'software.amazon.awssdk:s3:2.31.18'
+    implementation 'software.amazon.awssdk:auth:2.31.18'
+    implementation 'software.amazon.awssdk:regions:2.31.18'
+	    
+	// AI WebClient
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+	// AI 추천
+	implementation 'com.fasterxml.jackson.core:jackson-databind'
+	// pdf -> 이미지 변환
+	implementation 'org.apache.pdfbox:pdfbox:2.0.30'
 }
 
 // sourceSets
@@ -122,4 +134,10 @@ clean {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+eclipse {
+    classpath {
+        defaultOutputDir = file('build/classes/java/main')
+    }
 }

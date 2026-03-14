@@ -10,6 +10,7 @@ HELP.md
 .xml
 bin/
 /src/main/generated/
+/src/main/resources/static/
 
 # === OS ===
 Thumbs.db

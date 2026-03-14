@@ -38,7 +38,6 @@ public class EventServiceImpl implements EventService {
     private final HostBoothRepository hostBoothRepository;
     private final HostFacilityRepository hostFacilityRepository;
 
-    // ✅ 날짜별 신청자 수 조회를 위해 EntityManager 직접 사용
     @PersistenceContext
     private EntityManager em;
 
@@ -48,7 +47,7 @@ public class EventServiceImpl implements EventService {
         EventEntity event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new RuntimeException("존재하지 않는 행사입니다."));
 
-        if ("DELETED".equals(event.getEventStatus()) || "행사삭제".equals(event.getEventStatus())) {
+        if (isDeletedStatus(event.getEventStatus())) {
             throw new IllegalArgumentException("삭제된 행사입니다.");
         }
 
@@ -59,12 +58,9 @@ public class EventServiceImpl implements EventService {
 
         EventDto eventDto = EventDto.fromEntity(event);
 
-        // 전체 참여자 수 주입 (결제대기 포함 — 자리 확보 목적)
         Integer participantCount = eventRepository.countParticipantsByEventId(eventId);
         eventDto.setCurrentParticipantCount(participantCount != null ? participantCount : 0);
 
-        // ✅ 날짜별 신청자 수 주입
-        // key: "2026-02-01"  value: 해당 날짜 신청 수 (취소/참여삭제 제외)
         Map<String, Integer> dailyCounts = new LinkedHashMap<>();
         try {
             @SuppressWarnings("unchecked")
@@ -78,17 +74,17 @@ public class EventServiceImpl implements EventService {
                     .getResultList();
 
             for (Object[] row : rows) {
-                String date = String.valueOf(row[0]); // "2026-02-01"
-                int count   = ((Number) row[1]).intValue();
+                String date = String.valueOf(row[0]);
+                int count = ((Number) row[1]).intValue();
                 dailyCounts.put(date, count);
             }
         } catch (Exception e) {
-            // 조회 실패 시 빈 맵 유지 (화면은 정상 노출)
+            // 조회 실패 시 빈 맵 유지
         }
         eventDto.setDailyParticipantCounts(dailyCounts);
 
         List<String> detailImages = new ArrayList<>();
-        List<String> boothImages  = new ArrayList<>();
+        List<String> boothImages = new ArrayList<>();
 
         if (event.getEventFiles() != null) {
             for (FileEntity file : event.getEventFiles()) {
@@ -103,7 +99,7 @@ public class EventServiceImpl implements EventService {
         eventDto.setDetailImagePaths(detailImages);
         eventDto.setBoothFilePaths(boothImages);
 
-        List<HostBoothEntity>    booths     = hostBoothRepository.findByEventId(eventId);
+        List<HostBoothEntity> booths = hostBoothRepository.findByEventId(eventId);
         List<HostFacilityEntity> facilities = hostFacilityRepository.findByEventId(eventId);
 
         return EventDetailDto.builder()
@@ -127,14 +123,21 @@ public class EventServiceImpl implements EventService {
 
         Pageable unsortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
 
-        Long regionMin = null, regionMax = null;
+        Long regionMin = null;
+        Long regionMax = null;
+
         if (regionId != null) {
             String idStr = String.valueOf(regionId);
             String prefix = idStr.replaceAll("0+$", "");
             if (prefix.length() < 2) prefix = idStr.substring(0, 2);
+
             StringBuilder minSb = new StringBuilder(prefix);
             StringBuilder maxSb = new StringBuilder(prefix);
-            while (minSb.length() < 10) { minSb.append("0"); maxSb.append("9"); }
+            while (minSb.length() < 10) {
+                minSb.append("0");
+                maxSb.append("9");
+            }
+
             regionMin = Long.parseLong(minSb.toString());
             regionMax = Long.parseLong(maxSb.toString());
         }
@@ -144,10 +147,18 @@ public class EventServiceImpl implements EventService {
 
         if (topicIds == null || topicIds.isEmpty()) {
             Page<EventEntity> eventPage = eventRepository.searchEventsOrderByDateProximity(
-                    emptyToNull(keyword), regionMin, regionMax,
-                    filterStart, filterEnd, categoryId,
-                    checkFree, hideClosed, today, statusParam,
-                    unsortedPageable);
+                    emptyToNull(keyword),
+                    regionMin,
+                    regionMax,
+                    filterStart,
+                    filterEnd,
+                    categoryId,
+                    checkFree,
+                    hideClosed,
+                    today,
+                    statusParam,
+                    unsortedPageable
+            );
             return eventPage.map(EventDto::fromEntity);
         }
 
@@ -157,10 +168,19 @@ public class EventServiceImpl implements EventService {
             if (trimmed.isEmpty()) continue;
 
             Page<EventEntity> page = eventRepository.searchEventsWithTopicOrderByDate(
-                    emptyToNull(keyword), regionMin, regionMax,
-                    filterStart, filterEnd, categoryId,
-                    checkFree, hideClosed, today, trimmed, statusParam,
-                    Pageable.unpaged());
+                    emptyToNull(keyword),
+                    regionMin,
+                    regionMax,
+                    filterStart,
+                    filterEnd,
+                    categoryId,
+                    checkFree,
+                    hideClosed,
+                    today,
+                    trimmed,
+                    statusParam,
+                    Pageable.unpaged()
+            );
 
             for (EventEntity e : page.getContent()) {
                 mergedMap.put(e.getEventId(), e);
@@ -170,8 +190,9 @@ public class EventServiceImpl implements EventService {
         List<EventEntity> allMatched = new ArrayList<>(mergedMap.values());
         int total = allMatched.size();
         int start = (int) pageable.getOffset();
-        int end   = Math.min(start + pageable.getPageSize(), total);
-        List<EventEntity> pageContent = (start >= total) ? new ArrayList<>() : allMatched.subList(start, end);
+        int end = Math.min(start + pageable.getPageSize(), total);
+        List<EventEntity> pageContent =
+                (start >= total) ? new ArrayList<>() : allMatched.subList(start, end);
 
         return new PageImpl<>(pageContent, pageable, total).map(EventDto::fromEntity);
     }
@@ -188,14 +209,30 @@ public class EventServiceImpl implements EventService {
         String idStr = String.valueOf(regionId);
         String prefix = idStr.replaceAll("0+$", "");
         if (prefix.length() < 2) prefix = idStr.substring(0, 2);
+
         StringBuilder minSb = new StringBuilder(prefix);
         StringBuilder maxSb = new StringBuilder(prefix);
-        while (minSb.length() < 10) { minSb.append("0"); maxSb.append("9"); }
+        while (minSb.length() < 10) {
+            minSb.append("0");
+            maxSb.append("9");
+        }
+
         return eventRepository.countDailyEventsByRegion(
-                Long.parseLong(minSb.toString()), Long.parseLong(maxSb.toString()));
+                Long.parseLong(minSb.toString()),
+                Long.parseLong(maxSb.toString())
+        );
     }
 
     private String emptyToNull(String s) {
         return (s == null || s.isBlank()) ? null : s;
+    }
+
+    private boolean isDeletedStatus(String status) {
+        if (status == null) return false;
+        String lower = status.toLowerCase();
+        return "deleted".equals(lower)
+                || "report_deleted".equals(lower)
+                || lower.contains("deleted")
+                || "행사삭제".equals(status);
     }
 }

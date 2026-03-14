@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.poolpool.mohaeng.ai.dto.BizOcrResponse;
+import org.poolpool.mohaeng.ai.service.BizOcrService;
 import org.poolpool.mohaeng.auth.dto.request.LoginRequest;
 import org.poolpool.mohaeng.auth.dto.response.TokenResponse;
 import org.poolpool.mohaeng.common.api.ApiResponse;
@@ -15,6 +17,7 @@ import org.poolpool.mohaeng.user.dto.UserDto;
 import org.poolpool.mohaeng.user.service.UserService;
 import org.poolpool.mohaeng.user.type.SignupType;
 import org.poolpool.mohaeng.user.type.UserStatus;
+import org.poolpool.mohaeng.user.type.UserType;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -41,6 +44,7 @@ public class UserController {
 
 	private final UserService userService;
 	private final EventHostService eventHostService;
+	private final BizOcrService bizOcrService;
 	
 	//이메일(아이디) 중복 확인
 	@PostMapping("/checkId")
@@ -53,9 +57,37 @@ public class UserController {
 	//일반 회원가입(개인/업체)
 	@PostMapping("/createUser")
     public ResponseEntity<ApiResponse<Void>> signUp(
-    		@ModelAttribute @Valid UserDto user) {
+    		@ModelAttribute @Valid UserDto user,
+    		@RequestPart(value = "businessFile", required = false) MultipartFile businessFile) {
 
-		int result = userService.insertUser(user);
+		// 업체 회원일 경우 사업자 등록증 확인
+		if(user.getUserType() == UserType.COMPANY && businessFile != null) {
+			try {
+				BizOcrResponse ocrResult = bizOcrService.extractBusinessInfo(businessFile);
+				
+				String businessNum = ocrResult.getBusinessNumber();
+				String ownerName = ocrResult.getOwnerName();
+				String openDate = ocrResult.getOpenDate();
+				
+				if(businessNum.isEmpty() || ownerName.isEmpty() || openDate.isEmpty()) {
+					return ResponseEntity.status(500)
+				            .body(ApiResponse.fail("사업자 등록증 OCR 중 오류 발생하여 회원 가입 실패", null));
+				}
+				
+				// 로그 확인
+				System.out.println("사업자번호: " + businessNum);
+				System.out.println("대표자명: " + ownerName);
+				System.out.println("개업일자: " + openDate);			
+				
+				user.setBusinessNum(businessNum);
+			} catch (Exception e) {
+				return ResponseEntity.status(500)
+			            .body(ApiResponse.fail("사업자 등록증 OCR 중 오류 발생하여 회원 가입 실패", null));
+			}
+		}
+		
+//		int result = userService.insertUser(user);
+		int result = 2;
         
         if (result > 0) {
             return ResponseEntity.status(201).body(ApiResponse.ok("회원 가입 성공", null));
@@ -189,6 +221,55 @@ public class UserController {
 		}
         
     }
+	
+	// 사업자 등록증 인증 (회원가입 전 별도 호출)
+	@PostMapping(value = "/verifyBiz", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ResponseEntity<ApiResponse<Map<String, Object>>> verifyBiz(
+	        @RequestPart("businessFile") MultipartFile businessFile) {
+	    try {
+	        BizOcrResponse ocrResult = bizOcrService.extractBusinessInfo(businessFile);
+
+	        String businessNum = ocrResult.getBusinessNumber();
+	        String ownerName   = ocrResult.getOwnerName();
+	        String openDate    = ocrResult.getOpenDate();
+	        
+	        log.info("===== 사업자 인증 결과 =====");
+	        log.info("사업자번호: {}", businessNum);
+	        log.info("대표자명: {}", ownerName);
+	        log.info("개업일자: {}", openDate);
+	        log.info("회사명: {}", ocrResult.getCompanyName());
+	        log.info("isValid: {}", ocrResult.getIsValid());
+	        log.info("validationStatus: {}", ocrResult.getValidationStatus());
+	        log.info("validationMessage: {}", ocrResult.getValidationMessage());
+	        log.info("===========================");
+
+	        if (businessNum.isEmpty() || ownerName.isEmpty() || openDate.isEmpty()) {
+	            return ResponseEntity.status(400)
+	                .<ApiResponse<Map<String, Object>>>body(
+	                    ApiResponse.fail("인증 실패", null));
+	        }
+
+	        Map<String, Object> result = new HashMap<>();
+	        result.put("businessNumber", businessNum);
+	        result.put("companyName",    ocrResult.getCompanyName());
+	        result.put("ownerName",      ownerName);
+	        result.put("isValid",        ocrResult.getIsValid());
+	        result.put("message",        ocrResult.getValidationMessage());
+
+	        if (Boolean.FALSE.equals(ocrResult.getIsValid())) {
+	            return ResponseEntity.status(400)
+	                .<ApiResponse<Map<String, Object>>>body(
+	                    ApiResponse.fail(ocrResult.getValidationMessage(), null));
+	        }
+
+	        return ResponseEntity.ok(ApiResponse.ok("인증 성공", result));
+
+	    } catch (Exception e) {
+	        return ResponseEntity.status(500)
+	            .<ApiResponse<Map<String, Object>>>body(
+	                ApiResponse.fail("사업자 인증 중 오류가 발생했습니다.", null));
+	    }
+	}
 	
 	// 행사 등록 시 회원 정보 조회 (userId)
 	@GetMapping("/me")
