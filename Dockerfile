@@ -5,7 +5,9 @@ WORKDIR /build
 
 COPY . .
 
-RUN gradle clean build -x test
+# gradle wrapper 사용
+RUN chmod +x ./gradlew
+RUN ./gradlew clean build -x test
 
 # runtime stage
 FROM eclipse-temurin:21-jdk-jammy
